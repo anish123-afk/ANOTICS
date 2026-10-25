@@ -1,0 +1,45 @@
+{
+  "description": "Inventory of commercial contracts for ingestion, chunking, and embedding into ChromaDB",
+  "contracts": [
+    {
+      "contract_id": "STD",
+      "document_name": "Common Paper Cloud Service Agreement — Standard Terms Version 2.0",
+      "pdf_path": "bundle/contracts/STD.pdf"
+    },
+    {
+      "contract_id": "A1",
+      "document_name": "Cloud Service Agreement Cover Page — StratoNode Inc.",
+      "pdf_path": "bundle/contracts/A1.pdf"
+    },
+    {
+      "contract_id": "A2",
+      "document_name": "StratoNode CloudCore — Service Level Agreement",
+      "pdf_path": "bundle/contracts/A2.pdf"
+    },
+    {
+      "contract_id": "A3",
+      "document_name": "Amendment No. 1 to Service Level Agreement — StratoNode Inc.",
+      "pdf_path": "bundle/contracts/A3.pdf"
+    },
+    {
+      "contract_id": "B1",
+      "document_name": "Cloud Service Agreement Cover Page — Harbor Retail Solutions LLC",
+      "pdf_path": "bundle/contracts/B1.pdf"
+    },
+    {
+      "contract_id": "B2",
+      "document_name": "Data Processing and Security Addendum — Harbor Retail Solutions LLC",
+      "pdf_path": "bundle/contracts/B2.pdf"
+    },
+    {
+      "contract_id": "C1",
+      "document_name": "Cloud Service Agreement Cover Page — Vantage Logistics Corp.",
+      "pdf_path": "bundle/contracts/C1.pdf"
+    },
+    {
+      "contract_id": "D1",
+      "document_name": "Independent Contractor Services Agreement — Pixelwright Design Studio LLC",
+      "pdf_path": "bundle/contracts/D1.pdf"
+    }
+  ]
+}
