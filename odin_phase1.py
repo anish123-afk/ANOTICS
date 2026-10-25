@@ -606,3 +606,19 @@ def verify_citation(citation: Dict[str, Any]) -> Tuple[bool, str]:
 
     return False, "Unsupported file format."
 
+
+if __name__ == "__main__":
+    import sys
+    manifest = Path("bundle/manifest.json")
+    db_file = Path("odin.db")
+    if not manifest.exists():
+        print(f"Manifest file not found: {manifest}")
+        sys.exit(1)
+    print(f"Ingesting documents from {manifest} into {db_file}...")
+    res = ingest_documents(manifest, db_path=db_file)
+    print(f"Processed: {res['processed_documents']} documents")
+    print(f"Clauses: {res['total_clauses']}")
+    print(f"Cross references: {res['total_cross_references']}")
+    print(f"Failed: {res['failed_documents']}, OCR required: {res['ocr_required']}")
+
+

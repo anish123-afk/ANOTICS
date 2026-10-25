@@ -29,10 +29,21 @@ import logging
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any, Dict, List, Optional, Set, Tuple
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from pydantic import BaseModel, Field
 
 import odin_phase1
+
+def parse_event_date(timestamp_str: str) -> Optional[date]:
+    """Parse event timestamp ISO string to date object."""
+    if not timestamp_str:
+        return None
+    try:
+        clean = timestamp_str.split("T")[0].split(" ")[0].strip()
+        return datetime.strptime(clean, "%Y-%m-%d").date()
+    except Exception:
+        return None
 
 logger = logging.getLogger("odin.heimdall")
 if not logger.handlers:
@@ -146,8 +157,8 @@ def parse_event_stream(
             if not event_id:
                 raise ValueError("Missing 'event_id' in JSON")
 
-            # Check for duplicate in current batch or database
-            if event_id in seen_ids or event_id in existing_ids:
+            # Check for duplicate in current batch
+            if event_id in seen_ids:
                 logger.info(f"Duplicate event skipped: {event_id} (line {line_num})")
                 continue
 
@@ -261,6 +272,12 @@ def fetch_relevant_clauses_for_event(contract_ids: List[str], db_path: str = "od
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
+
+    # Guard: check if clauses table exists before querying
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='clauses'")
+    if not cursor.fetchone():
+        conn.close()
+        return []
 
     placeholders = ",".join("?" for _ in contract_ids)
     cursor.execute(
@@ -425,18 +442,24 @@ def process_events(
     event_files: List[Path | str],
     db_path: Path | str = "odin.db",
     severity_threshold: str = "medium",  # Options: info, low, medium, high, critical
+    checkpoint_date: Optional[Union[str, date]] = None,
 ) -> Dict[str, Any]:
     """
     Main Heimdall processing engine:
     1. Ingests all drops (events_drop1.jsonl, events_drop2.jsonl)
-    2. Identifies affected contracts and maps clauses
-    3. Detects contractual triggers and filters noise
-    4. Suppresses duplicates and saves alerts to SQLite
+    2. Filters events by checkpoint_date (events after checkpoint do not leak)
+    3. Identifies affected contracts and maps clauses
+    4. Detects contractual triggers and filters noise
+    5. Suppresses duplicates and saves alerts to SQLite
     """
     conn = init_heimdall_db(db_path)
     total_parsed = 0
     total_malformed = 0
     generated_alerts: List[ContractAlert] = []
+
+    target_cp: Optional[date] = None
+    if checkpoint_date:
+        target_cp = parse_event_date(str(checkpoint_date)) if isinstance(checkpoint_date, str) else checkpoint_date
 
     severity_levels = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
     min_level = severity_levels.get(severity_threshold.lower(), 2)
@@ -447,6 +470,12 @@ def process_events(
         total_malformed += len(errors)
 
         for ev in events:
+            # Checkpoint temporal filter: ignore events that occur strictly after checkpoint date
+            if target_cp:
+                ev_date = parse_event_date(ev.timestamp)
+                if ev_date and ev_date > target_cp:
+                    continue
+
             affected_contracts = identify_affected_contracts(ev)
             alert = evaluate_event_trigger(ev, affected_contracts, db_path=db_path)
 
