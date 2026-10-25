@@ -484,10 +484,12 @@ Conflicts / Supersessions Noted: {decision.conflicts_detected or 'None'}
 Schedule immediate review with outside counsel and operations lead to evaluate
 notice obligations and customer communication strategy.
 
-EXECUTIVE DECISION:
+EXECUTIVE DECISION & AUTHORIZED SIGNATORY APPROVAL:
 [ ] Proceed with proposed counterparty notice
 [ ] Instruct counsel to draft formal addendum
 [ ] Hold pending further operational investigation
+Signatory: _______________________ Date: _________
+(CEO Priya Chandrasekaran or VP Legal Marcus Ellison required)
 ================================================================================
 """
 
