@@ -1,9 +1,0 @@
-/.venv
-/.pytest_cache
-/__pycache__
-<<<<<<< HEAD
-/.env
-=======
-.env
-documentation.md
->>>>>>> origin/heimdall
