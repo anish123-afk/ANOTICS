@@ -161,7 +161,6 @@ def extract_text_from_file(file_path: Path | str) -> Dict[str, Any]:
                 text = page.get_text()
                 total_text_length += len(text.strip())
                 pages.append({"page_number": idx, "text": text})
-
             # Check if PDF contains no extractable text (e.g. scanned image PDF)
             if total_text_length == 0:
                 logger.warning("PDF contains no extractable text, marks OCR required: %s", path)
