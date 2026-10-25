@@ -1,0 +1,104 @@
+{
+  "checkpoints_analyzed": [
+    {
+      "simulated_date": "2027-03-15",
+      "checkpoint_index": 0,
+      "executive_summary": "As of checkpoint 1 (2027-03-15), Quillhub maintains 4 tracked obligations. Confirmed outstanding amount due is $0.00 with $0.00 in potential late penalties. All matured commitments are currently fulfilled or in good standing.",
+      "total_confirmed_due": 0.0,
+      "total_potential_penalties": 0.0,
+      "critical_alerts": [
+        {
+          "obligation_id": "OB-B1-RENEWAL-NOTICE",
+          "contract_id": "B1",
+          "status": "upcoming",
+          "summary_explanation": "Harbor Retail Non-Renewal Notice Deadline (60 days prior to expiry) is UPCOMING. Days remaining: 108d. Total paid to date: $280,000.00.",
+          "legal_basis": "Clause(s): ledger_row_8, ledger_row_13, B1-Sec-2.2, ledger_row_3, ledger_row_6, ledger_row_18, ledger_row_10, ledger_row_15",
+          "cited_evidence_ids": [
+            "ledger_row_8",
+            "ledger_row_13",
+            "B1-Sec-2.2",
+            "ledger_row_3",
+            "ledger_row_6",
+            "ledger_row_18",
+            "ledger_row_10",
+            "ledger_row_15"
+          ],
+          "worst_case_scenario": "Failure to deliver formal notice prior to due date 2027-07-01 may cause automatic renewal or forfeiture of cancellation rights."
+        }
+      ],
+      "recommended_immediate_actions": [
+        "Prepare and serve non-renewal notice for OB-B1-RENEWAL-NOTICE before 2027-07-01"
+      ],
+      "missing_information_requests": []
+    },
+    {
+      "simulated_date": "2027-06-01",
+      "checkpoint_index": 1,
+      "executive_summary": "As of checkpoint 2 (2027-06-01), Quillhub maintains 4 tracked obligations. Confirmed outstanding amount due is $0.00 with $0.00 in potential late penalties. All matured commitments are currently fulfilled or in good standing.",
+      "total_confirmed_due": 0.0,
+      "total_potential_penalties": 0.0,
+      "critical_alerts": [
+        {
+          "obligation_id": "OB-B1-RENEWAL-NOTICE",
+          "contract_id": "B1",
+          "status": "upcoming",
+          "summary_explanation": "Harbor Retail Non-Renewal Notice Deadline (60 days prior to expiry) is UPCOMING. Days remaining: 30d. Total paid to date: $280,000.00.",
+          "legal_basis": "Clause(s): ledger_row_8, ledger_row_20, ledger_row_13, B1-Sec-2.2, ledger_row_22, ledger_row_3, ledger_row_6, ledger_row_18, ledger_row_10, ledger_row_15",
+          "cited_evidence_ids": [
+            "ledger_row_8",
+            "ledger_row_20",
+            "ledger_row_13",
+            "B1-Sec-2.2",
+            "ledger_row_22",
+            "ledger_row_3",
+            "ledger_row_6",
+            "ledger_row_18",
+            "ledger_row_10",
+            "ledger_row_15"
+          ],
+          "worst_case_scenario": "Failure to deliver formal notice prior to due date 2027-07-01 may cause automatic renewal or forfeiture of cancellation rights."
+        }
+      ],
+      "recommended_immediate_actions": [
+        "Prepare and serve non-renewal notice for OB-B1-RENEWAL-NOTICE before 2027-07-01"
+      ],
+      "missing_information_requests": []
+    },
+    {
+      "simulated_date": "2027-09-15",
+      "checkpoint_index": 2,
+      "executive_summary": "As of checkpoint 3 (2027-09-15), Quillhub maintains 4 tracked obligations. Confirmed outstanding amount due is $0.00 with $0.00 in potential late penalties. CRITICAL: 1 obligation(s) are currently OVERDUE and require immediate legal remedy.",
+      "total_confirmed_due": 0.0,
+      "total_potential_penalties": 0.0,
+      "critical_alerts": [
+        {
+          "obligation_id": "OB-B1-RENEWAL-NOTICE",
+          "contract_id": "B1",
+          "status": "overdue",
+          "summary_explanation": "Harbor Retail Non-Renewal Notice Deadline (60 days prior to expiry) is OVERDUE. Days remaining: -76d. Total paid to date: $280,000.00.",
+          "legal_basis": "Clause(s): ledger_row_8, ledger_row_20, ledger_row_13, B1-Sec-2.2, ledger_row_22, ledger_row_3, ledger_row_6, ledger_row_24, ledger_row_18, ledger_row_10, ledger_row_15",
+          "cited_evidence_ids": [
+            "ledger_row_8",
+            "ledger_row_20",
+            "ledger_row_13",
+            "B1-Sec-2.2",
+            "ledger_row_22",
+            "ledger_row_3",
+            "ledger_row_6",
+            "ledger_row_24",
+            "ledger_row_18",
+            "ledger_row_10",
+            "ledger_row_15"
+          ],
+          "worst_case_scenario": "If default continues beyond contractual cure period, counterparty may declare formal breach, assess late fee of 0.00, or terminate agreement for cause."
+        }
+      ],
+      "recommended_immediate_actions": [
+        "Issue cure response / release payment for OB-B1-RENEWAL-NOTICE (B1)"
+      ],
+      "missing_information_requests": []
+    }
+  ],
+  "overall_timeline_trend": "Contractual risk escalated significantly between 2027-03-15 and 2027-09-15. While early checkpoints were in compliance, 1 obligation(s) entered OVERDUE status by 2027-09-15, requiring active arbitration and potential breach mitigation.",
+  "unresolved_legal_questions": []
+}

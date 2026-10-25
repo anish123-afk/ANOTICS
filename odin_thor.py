@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from langgraph.graph import StateGraph, START, END
 import odin_phase1
+import odin_qdrant
 
 
 # -----------------------------------------------------------------------------
@@ -134,57 +135,41 @@ def tokenize(text: str) -> List[str]:
     return re.findall(r"\b[a-zA-Z0-9_\-\.\$]+\b", text.lower())
 
 
+import uuid
+
 class SemanticClauseIndex:
     """
-    Lightweight, deterministic semantic BM25/TF-IDF similarity search over clauses.
-    No heavy external models or vector databases required, keeping the codebase simple.
+    Vector Database semantic search powered by Qdrant and dense embeddings.
+    Indexes clause chunks into an isolated Qdrant collection and performs cosine vector similarity search.
     """
 
     def __init__(self, clauses: List[Dict[str, Any]]):
         self.clauses = clauses
-        self.doc_count = len(clauses)
-        self.doc_lens: List[int] = []
-        self.doc_term_freqs: List[Dict[str, int]] = []
-        self.df: Dict[str, int] = {}
-
-        for c in clauses:
-            tokens = tokenize(c.get("source_text", ""))
-            self.doc_lens.append(len(tokens))
-            tf: Dict[str, int] = {}
-            for t in tokens:
-                tf[t] = tf.get(t, 0) + 1
-            self.doc_term_freqs.append(tf)
-            for t in tf.keys():
-                self.df[t] = self.df.get(t, 0) + 1
-
-        self.avg_doc_len = (sum(self.doc_lens) / max(1, self.doc_count)) if self.doc_count > 0 else 1.0
+        self.client = odin_qdrant.get_qdrant_client(":memory:")
+        self.collection_name = "clauses_" + uuid.uuid4().hex[:12]
+        self.client.create_collection(
+            collection_name=self.collection_name,
+            vectors_config=odin_qdrant.VectorParams(size=odin_qdrant.VECTOR_DIM, distance=odin_qdrant.Distance.COSINE),
+        )
+        if clauses:
+            points = []
+            for idx, c in enumerate(clauses):
+                vec = odin_qdrant.get_text_embedding(f"{c.get('heading', '')}\n{c.get('source_text', '')}")
+                points.append(odin_qdrant.PointStruct(id=idx + 1, vector=vec, payload=c))
+            self.client.upsert(collection_name=self.collection_name, points=points)
 
     def search(self, query: str, top_k: int = 5) -> List[Tuple[float, Dict[str, Any]]]:
-        """Rank clauses by BM25 semantic similarity to the query."""
-        q_tokens = tokenize(query)
-        if not q_tokens or self.doc_count == 0:
+        """Rank clauses by vector cosine similarity in Qdrant."""
+        if not query or not self.clauses:
             return []
 
-        k1 = 1.5
-        b = 0.75
-        scores: List[Tuple[float, int]] = []
-
-        for idx, tf in enumerate(self.doc_term_freqs):
-            doc_len = self.doc_lens[idx]
-            score = 0.0
-            for qt in q_tokens:
-                if qt in tf:
-                    doc_freq = self.df.get(qt, 1)
-                    idf = math.log((self.doc_count - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0)
-                    freq = tf[qt]
-                    numerator = freq * (k1 + 1)
-                    denominator = freq + k1 * (1 - b + b * (doc_len / self.avg_doc_len))
-                    score += idf * (numerator / denominator)
-            if score > 0.0:
-                scores.append((score, idx))
-
-        scores.sort(key=lambda x: x[0], reverse=True)
-        return [(score, self.clauses[idx]) for score, idx in scores[:top_k]]
+        query_vector = odin_qdrant.get_text_embedding(query)
+        results = self.client.query_points(
+            collection_name=self.collection_name,
+            query=query_vector,
+            limit=top_k,
+        )
+        return [(pt.score, pt.payload or {}) for pt in results.points]
 
 
 # -----------------------------------------------------------------------------
@@ -383,7 +368,7 @@ def extract_obligations(clauses: List[Dict[str, Any]], doc_id: str, index: Seman
 
 def extract_penalties(clauses: List[Dict[str, Any]], doc_id: str, index: SemanticClauseIndex) -> List[PenaltyClause]:
     penalties: List[PenaltyClause] = []
-    matches = index.search("penalty interest credit service credit overdue breach liability", top_k=3)
+    matches = index.search("Late Payment overdue interest accrues fee penalty credit", top_k=6)
 
     for score, clause in matches:
         text = clause["source_text"]
@@ -446,7 +431,7 @@ def extract_compliance_and_termination(
                 break
 
     # Termination search
-    term_matches = index.search("termination terminate material breach notice non-renewal expire", top_k=3)
+    term_matches = index.search("termination terminate material breach notice non-renewal expire", top_k=6)
     for score, clause in term_matches:
         text = clause["source_text"]
         m_notice = re.search(r"([0-9]+\s*days)\s*(?:written\s*notice|prior\s*notice)", text, re.IGNORECASE)

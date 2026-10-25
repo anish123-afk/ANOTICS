@@ -23,6 +23,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
+import odin_qdrant
 
 logger = logging.getLogger("odin.ingestion")
 if not logger.handlers:
@@ -537,6 +538,13 @@ def ingest_documents(
         report["processed_documents"] += 1
         report["total_clauses"] += len(clauses)
         report["total_cross_references"] += len(refs)
+
+        # Store vector embeddings in Qdrant
+        try:
+            odin_qdrant.upsert_clauses_to_qdrant(clauses, storage_path="odin_qdrant_storage")
+        except Exception as qe:
+            logger.warning(f"Could not upsert to Qdrant for {doc_id}: {qe}")
+
         report["details"].append({
             "document_id": doc_id,
             "file": rel_file_str,
@@ -645,4 +653,20 @@ def verify_citation(citation: Dict[str, Any]) -> Tuple[bool, str]:
             return False, f"Error verifying PDF page: {e}"
 
     return False, "Unsupported file format."
+
+
+if __name__ == "__main__":
+    import sys
+    manifest = Path("bundle/manifest.json")
+    db_file = Path("odin.db")
+    if not manifest.exists():
+        print(f"Manifest file not found: {manifest}")
+        sys.exit(1)
+    print(f"Ingesting documents from {manifest} into {db_file}...")
+    res = ingest_documents(manifest, db_path=db_file)
+    print(f"Processed: {res['processed_documents']} documents")
+    print(f"Clauses: {res['total_clauses']}")
+    print(f"Cross references: {res['total_cross_references']}")
+    print(f"Failed: {res['failed_documents']}, OCR required: {res['ocr_required']}")
+
 
