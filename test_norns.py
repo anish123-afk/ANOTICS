@@ -9,10 +9,12 @@ from norns.non_llm.tests import (
     TestExposureEngine,
     TestNornsTimelineTransitions,
 )
+from norns.llm.tests import TestNornsLLM
 
 __all__ = [
     "TestNornsClockAndCalendar",
     "TestPaymentReconciler",
     "TestExposureEngine",
     "TestNornsTimelineTransitions",
+    "TestNornsLLM",
 ]

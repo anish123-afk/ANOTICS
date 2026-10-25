@@ -38,6 +38,7 @@ from odin_thor_norns_adapter import adapt_thor_to_norns
 from odin_tyr_adapter import run_tyr_on_live_outputs
 from norns.non_llm.timeline import NornsTimelineAgent
 from norns.non_llm.schemas import CheckpointSnapshot
+from norns.llm import NornsLLMAgent, TimelineCheckpointAnalysis
 
 logger = logging.getLogger("odin.orchestrator")
 if not logger.handlers:
@@ -51,6 +52,9 @@ def run_odin_pipeline(
     db_path: Path | str = "odin.db",
     include_tyr: bool = True,
     contract_ids: Optional[List[str]] = None,
+    include_norns_llm: bool = True,
+    enable_live_llm: bool = False,
+    llm_api_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Execute end-to-end ODIN pipeline across Phases 1–5 (and Tyr).
@@ -147,6 +151,7 @@ def run_odin_pipeline(
     # -------------------------------------------------------------------------
     logger.info("Executing Phase 3 Norns with Thor-adapted obligations...")
     norns_snapshot: Optional[CheckpointSnapshot] = None
+    norns_llm_analysis: Optional[TimelineCheckpointAnalysis] = None
     try:
         adapted_obligations = adapt_thor_to_norns(thor_results)
         norns_agent = NornsTimelineAgent(
@@ -172,6 +177,24 @@ def run_odin_pipeline(
             "total_outstanding_usd": norns_snapshot.total_outstanding,
             "total_penalties_usd": norns_snapshot.total_penalties,
         }
+
+        # LLM Reasoning & Legal Narrative Synthesis Layer
+        if include_norns_llm:
+            try:
+                llm_agent = NornsLLMAgent(
+                    api_key=llm_api_key,
+                    use_mock=not enable_live_llm,
+                )
+                norns_llm_analysis = llm_agent.analyze_checkpoint(norns_snapshot)
+                pipeline_result["norns"]["llm_analysis"] = {
+                    "executive_summary": norns_llm_analysis.executive_summary,
+                    "critical_alerts_count": len(norns_llm_analysis.critical_alerts),
+                    "recommended_immediate_actions": norns_llm_analysis.recommended_immediate_actions,
+                    "missing_information_requests": norns_llm_analysis.missing_information_requests,
+                }
+            except Exception as e:
+                logger.warning("Norns LLM synthesis note: %s", e)
+                pipeline_result["warnings"].append(f"Norns LLM synthesis note: {e}")
     except Exception as e:
         msg = f"Phase 3 Norns failed: {e}"
         logger.error(msg)
@@ -257,6 +280,7 @@ def run_odin_pipeline(
                 heimdall_alerts=heimdall_alerts,
                 norns_snapshot=norns_snapshot,
                 checkpoint_date=checkpoint_date,
+                norns_analysis=norns_llm_analysis,
             )
             pipeline_result["agent_statuses"]["tyr"] = "success"
             pipeline_result["tyr"] = {
@@ -300,6 +324,9 @@ def main():
     parser.add_argument("--bundle", default="bundle", help="Path to bundle directory")
     parser.add_argument("--db", default="odin.db", help="Path to shared SQLite database")
     parser.add_argument("--no-tyr", action="store_true", help="Skip Tyr arbitration step")
+    parser.add_argument("--no-norns-llm", action="store_true", help="Skip Norns LLM synthesis step")
+    parser.add_argument("--enable-live-llm", action="store_true", help="Enable live Anthropic Claude API calls (otherwise uses deterministic mock engine)")
+    parser.add_argument("--api-key", default=None, help="Anthropic API Key for live Claude analysis")
     parser.add_argument("--json-out", default=None, help="Optional output JSON path for run results")
 
     args = parser.parse_args()
@@ -312,6 +339,7 @@ def main():
     print(f"Bundle Path:     {args.bundle}")
     print(f"Database:        {args.db}")
     print(f"Include Tyr:     {not args.no_tyr}")
+    print(f"Norns LLM Mode:  {'LIVE CLAUDE' if args.enable_live_llm else 'OFFLINE MOCK' if not args.no_norns_llm else 'SKIPPED'}")
     print("-" * 78)
 
     results = run_odin_pipeline(
@@ -320,6 +348,9 @@ def main():
         bundle_path=args.bundle,
         db_path=args.db,
         include_tyr=not args.no_tyr,
+        include_norns_llm=not args.no_norns_llm,
+        enable_live_llm=args.enable_live_llm,
+        llm_api_key=args.api_key,
     )
 
     print("\n--- PIPELINE EXECUTION SUMMARY ---")
@@ -336,6 +367,13 @@ def main():
     if "norns" in results:
         nr = results["norns"]
         print(f"[Phase 3 Norns] Obligations Evaluated: {nr['total_obligations_evaluated']} | Outstanding: ${nr['total_outstanding_usd']} | Penalties: ${nr['total_penalties_usd']}")
+        if "llm_analysis" in nr:
+            llm_a = nr["llm_analysis"]
+            print(f"  [Norns LLM Narrative] {llm_a['executive_summary']}")
+            if llm_a.get("recommended_immediate_actions"):
+                print(f"  [Immediate Action] {llm_a['recommended_immediate_actions'][0]}")
+            if llm_a.get("missing_information_requests"):
+                print(f"  [Thor Feedback Loop] {llm_a['missing_information_requests'][0]}")
     if "loki" in results:
         lk = results["loki"]
         print(f"[Phase 4 Loki] Risk Findings: {lk['total_findings']} | Unverified Quotes: {lk['unverified_citations']}")

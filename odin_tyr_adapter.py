@@ -133,9 +133,11 @@ def build_deterministic_context_from_norns(
     snapshot: Optional[CheckpointSnapshot],
     checkpoint_date_str: str = "2027-03-15",
     superseded_clauses: Optional[Dict[str, str]] = None,
+    norns_analysis: Optional[Any] = None,
 ) -> DeterministicContext:
     """
-    Construct Tyr's DeterministicContext from Norns's CheckpointSnapshot calculations.
+    Construct Tyr's DeterministicContext from Norns's CheckpointSnapshot calculations
+    and Norns LLM synthesized legal recommendations.
     """
     confirmed = 0.0
     penalties = 0.0
@@ -151,17 +153,22 @@ def build_deterministic_context_from_norns(
     if superseded_clauses:
         default_superseded.update(superseded_clauses)
 
+    deadlines = {
+        "stratonode_credit_claim": "Within 15 days of month end (A3 §1)",
+        "harbor_credit_claim": "Within 45 days of month end (B1 §3.5)",
+        "insurance_expiration": "June 30, 2027 at 11:59 PM",
+    }
+    if norns_analysis and hasattr(norns_analysis, "recommended_immediate_actions"):
+        for idx, act in enumerate(norns_analysis.recommended_immediate_actions, start=1):
+            deadlines[f"norns_action_{idx}"] = act
+
     return DeterministicContext(
         simulated_date=checkpoint_date_str,
         confirmed_exposure_usd=round(confirmed, 2),
         potential_penalty_usd=round(penalties, 2),
         unrecoverable_gap_usd=6000.0 if checkpoint_date_str >= "2027-03-15" else 0.0,
         superseded_clauses=default_superseded,
-        deadlines={
-            "stratonode_credit_claim": "Within 15 days of month end (A3 §1)",
-            "harbor_credit_claim": "Within 45 days of month end (B1 §3.5)",
-            "insurance_expiration": "June 30, 2027 at 11:59 PM",
-        },
+        deadlines=deadlines,
     )
 
 
@@ -170,13 +177,18 @@ def run_tyr_on_live_outputs(
     heimdall_alerts: Optional[List[ContractAlert]] = None,
     norns_snapshot: Optional[CheckpointSnapshot] = None,
     checkpoint_date: str = "2027-03-15",
+    norns_analysis: Optional[Any] = None,
 ) -> TyrAgentState:
     """
     Execute Tyr arbitration on live outputs from Loki, Heimdall, and Norns.
     """
     tyr_loki = map_loki_to_tyr(loki_report) if loki_report else []
     tyr_heimdall = map_heimdall_to_tyr(heimdall_alerts) if heimdall_alerts else []
-    det_ctx = build_deterministic_context_from_norns(norns_snapshot, checkpoint_date)
+    det_ctx = build_deterministic_context_from_norns(
+        norns_snapshot,
+        checkpoint_date,
+        norns_analysis=norns_analysis,
+    )
 
     return run_tyr(
         loki_findings=tyr_loki,

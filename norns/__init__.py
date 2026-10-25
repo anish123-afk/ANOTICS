@@ -19,6 +19,14 @@ from .non_llm import (
     CheckpointSnapshot,
     EvidenceCitation,
 )
+from .llm import (
+    NornsLLMAgent,
+    AnthropicClient,
+    MockNornsLLM,
+    TimelineCheckpointAnalysis,
+    ObligationNarrative,
+    MultiCheckpointTimelineReport,
+)
 
 __all__ = [
     "NornsTimelineAgent",
@@ -33,4 +41,10 @@ __all__ = [
     "ObligationTimelineState",
     "CheckpointSnapshot",
     "EvidenceCitation",
+    "NornsLLMAgent",
+    "AnthropicClient",
+    "MockNornsLLM",
+    "TimelineCheckpointAnalysis",
+    "ObligationNarrative",
+    "MultiCheckpointTimelineReport",
 ]

@@ -171,6 +171,9 @@ def test_orchestrator_end_to_end_checkpoint_1(tmp_path):
     assert result["agent_statuses"]["phase1"] == "success"
     assert result["agent_statuses"]["thor"] == "success"
     assert result["agent_statuses"]["norns"] == "success"
+    assert "llm_analysis" in result["norns"]
+    assert "executive_summary" in result["norns"]["llm_analysis"]
+    assert len(result["norns"]["llm_analysis"]["recommended_immediate_actions"]) > 0
     assert result["agent_statuses"]["loki"] == "success"
     assert result["agent_statuses"]["heimdall"] == "success"
     assert result["agent_statuses"]["tyr"] == "success"
