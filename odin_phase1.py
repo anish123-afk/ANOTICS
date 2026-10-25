@@ -30,9 +30,44 @@ if not logger.handlers:
 
 # Regular expression to match section/clause headings
 CLAUSE_HEADING_REGEX = re.compile(
-    r"^(?:(?:SECTION|Section|CLAUSE|Clause)\s+([0-9A-Z]+(?:\.[0-9A-Z]+)*)|([0-9]+\.[0-9]+(?:\.[0-9]+)*))(?:\s*[\:\—\-\–\.]|\s+|$)",
+    r"^(?:(?:SECTION|Section|CLAUSE|Clause|ARTICLE|Article)\s+([0-9A-Z]+(?:\.[0-9A-Z]+)*)|([0-9]+\.[0-9]+(?:\.[0-9]+)*))(?:\s*[\:\—\-\–\.]|\s+|$)",
     re.IGNORECASE,
 )
+
+# Regular expression to match named structural blocks (e.g. Cover Page blocks, Exhibits, Schedules)
+NAMED_BLOCK_REGEX = re.compile(
+    r"^(PROVIDER\s+INFORMATION|CUSTOMER\s+INFORMATION|KEY\s+TERMS|SIGNATURES|EXHIBIT\s+[A-Z0-9]+|SCHEDULE\s+[A-Z0-9]+)\b",
+    re.IGNORECASE,
+)
+
+
+def detect_structural_heading(line: str, next_line: Optional[str] = None) -> Optional[Tuple[str, str]]:
+    """
+    Structure-aware detector for contract document boundaries:
+    1. Standard numbered/lettered clauses (e.g. 'SECTION 1', 'Section A', '1.1 Access and Use')
+    2. Structural contract sections with underline formatting (e.g. 'PROVIDER INFORMATION', 'KEY TERMS')
+    Returns:
+        (clause_id, heading_text) or None
+    """
+    line_clean = line.strip()
+    if not line_clean:
+        return None
+
+    # Check numbered/lettered clause regex
+    match = CLAUSE_HEADING_REGEX.match(line_clean)
+    if match:
+        clause_id = match.group(1) or match.group(2)
+        return clause_id, line_clean
+
+    # Check structural blocks followed by Markdown/ASCII underlines (--- or ===)
+    if next_line:
+        nl_clean = next_line.strip()
+        if len(nl_clean) >= 3 and set(nl_clean) <= {"-", "=", "_"}:
+            m_block = NAMED_BLOCK_REGEX.match(line_clean)
+            if m_block:
+                return m_block.group(1).upper(), line_clean
+
+    return None
 
 # Regular expression to match cross references inside clause text
 CROSS_REF_REGEX = re.compile(
@@ -210,8 +245,11 @@ def split_text_into_clauses(
     source_hash: str,
 ) -> List[Dict[str, Any]]:
     """
-    Split document text into clauses using clause numbers and headings.
-    Preserves all text including preamble/unassigned sections.
+    Structure-aware contract clause splitter.
+    Segments document text into hierarchical clauses and structural blocks using:
+    - Clause and section numbering ('SECTION 1', 'Section A', '1.1 Access and Use')
+    - Formal agreement divisions ('PROVIDER INFORMATION', 'CUSTOMER INFORMATION', 'KEY TERMS')
+    - Preserves all preambles, recitals, and boundary lines without discarding any text.
     """
     clauses: List[Dict[str, Any]] = []
 
@@ -224,11 +262,14 @@ def split_text_into_clauses(
         current_heading: Optional[str] = None
         current_lines: List[str] = []
 
-        for line in lines:
-            line_str = line.strip()
-            match = CLAUSE_HEADING_REGEX.match(line_str)
+        total_lines = len(lines)
+        for idx, line in enumerate(lines):
+            next_line = lines[idx + 1] if idx + 1 < total_lines else None
+            header_match = detect_structural_heading(line, next_line)
 
-            if match:
+            if header_match:
+                clause_id_val, heading_val = header_match
+
                 # Flush existing clause buffer
                 if current_lines:
                     text_content = "\n".join(current_lines).strip()
@@ -244,9 +285,8 @@ def split_text_into_clauses(
                         })
                     current_lines = []
 
-                clause_id_val = match.group(1) or match.group(2)
                 current_clause_id = clause_id_val
-                current_heading = line_str
+                current_heading = heading_val
                 current_lines.append(line)
             else:
                 current_lines.append(line)
