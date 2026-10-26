@@ -34,9 +34,33 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from dotenv import load_dotenv
+from langchain_core.output_parsers import BaseOutputParser
 from odin_state import OdinState
 
 load_dotenv()
+
+
+# ----------------------------------------------------------------------
+# Strict Output Parser (Enforces 1-2 Lines of Output)
+# ----------------------------------------------------------------------
+class StrictLinesOutputParser(BaseOutputParser[str]):
+    """
+    Strict output parser that enforces exactly 1-2 lines of text.
+    Strips blank lines, trims extraneous conversational filler,
+    and returns strictly at most 2 concise lines.
+    """
+    max_lines: int = 2
+
+    def parse(self, text: str) -> str:
+        if not text:
+            return ""
+        # Split into non-empty lines
+        lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+        if not lines:
+            return ""
+        # Enforce maximum 1-2 lines strictly
+        selected = lines[:self.max_lines]
+        return "\n".join(selected)
 
 
 # ----------------------------------------------------------------------
@@ -171,16 +195,13 @@ class NornsAgent:
             ("system", "You are Norns, an executive legal and financial compliance intelligence agent for Quillhub Inc. "
                        "You are evaluating contract deadlines based on rigorous Python calculations.\n\n"
                        "MANDATORY REVIEW RULES:\n"
-                       "1. If status is 'SAFE' (d_days > notice_days): Generate a review stating that everything is fine. "
-                       "Ample buffer remains ({d_days} days until expiration vs {notice_days} days notice required), "
-                       "no immediate risk of unintended auto-renewal or lapse.\n"
-                       "2. If status is 'RENEW_FAST' (d_days < notice_days): Generate an urgent alert that the team needs to "
-                       "renew or renegotiate fast. The notice period window is either breached or imminent ({d_days} days remaining vs {notice_days} days notice required), "
-                       "posing financial exposure and loss of renegotiation leverage.\n"
-                       "3. If status is 'OVERDUE_PENALTIES' (d_days < 0): Generate a critical financial and breach review stating that "
-                       "the time is over (contract expired {d_days_abs} days ago). Financial penalties, default damages, or service lapse liabilities "
-                       "now apply and require immediate mitigation.\n\n"
-                       "Provide a concise, professional 2-3 sentence executive review."),
+                       "1. If status is 'SAFE' (d_days > notice_days): State that everything is fine and ample buffer remains.\n"
+                       "2. If status is 'RENEW_FAST' (d_days < notice_days): Issue an urgent alert that the team needs to renew fast before the notice window closes.\n"
+                       "3. If status is 'OVERDUE_PENALTIES' (d_days < 0): State that time is over, the contract has expired, and penalties/default apply.\n\n"
+                       "STRICT OUTPUT CONSTRAINT:\n"
+                       "- Output MUST BE strictly 1 to 2 lines of text.\n"
+                       "- Do NOT exceed 2 lines under any circumstances.\n"
+                       "- Do not include markdown headers, bullet points, or conversational filler."),
             ("human", "Contract: {doc_name} (ID: {contract_id})\n"
                       "Checkpoint Date: {checkpoint_date}\n"
                       "Contract End Date: {end_date}\n"
@@ -190,8 +211,9 @@ class NornsAgent:
         ])
 
         try:
-            chain = prompt | self.llm
-            resp = chain.invoke({
+            parser = StrictLinesOutputParser(max_lines=2)
+            chain = prompt | self.llm | parser
+            parsed_review = chain.invoke({
                 "doc_name": doc_name,
                 "contract_id": contract_id,
                 "checkpoint_date": checkpoint_date_str,
@@ -201,7 +223,7 @@ class NornsAgent:
                 "notice_days": notice_days,
                 "status": status
             })
-            return resp.content.strip()
+            return parsed_review.strip()
         except Exception:
             return self._heuristic_review_generator(
                 doc_name, contract_id, checkpoint_date_str, end_date_str, d_days, notice_days, status
@@ -217,24 +239,21 @@ class NornsAgent:
         notice_days: int,
         status: str
     ) -> str:
-        """Deterministic generator replicating Claude Haiku review structure."""
+        """Deterministic generator producing strictly 1-2 lines replicating Claude Haiku review structure."""
         if status == "SAFE":
             return (
-                f"[STATUS: SAFE] Everything is fine. As of checkpoint {checkpoint_date_str}, {d_days} days remain "
-                f"before expiration on {end_date_str}, safely exceeding the {notice_days}-day non-renewal notice requirement. "
-                f"Quillhub maintains adequate operating buffer and renegotiation leverage."
+                f"[SAFE] Everything is fine: As of {checkpoint_date_str}, {d_days} days remain before expiration on {end_date_str}.\n"
+                f"Ample buffer exists exceeding the {notice_days}-day notice requirement with zero risk of involuntary renewal."
             )
         elif status == "RENEW_FAST":
             return (
-                f"[STATUS: URGENT RENEWAL] Action required: You need to renew fast! Only {d_days} days remain until "
-                f"contract end date {end_date_str}, which falls inside the required {notice_days}-day non-renewal notice window. "
-                f"Immediate executive action is required to avoid involuntary automatic renewal on unfavorable terms."
+                f"[URGENT] Action required: You need to renew fast before expiration on {end_date_str}!\n"
+                f"Only {d_days} days remain, falling inside the required {notice_days}-day non-renewal notice window."
             )
         else:  # OVERDUE_PENALTIES
             return (
-                f"[STATUS: CRITICAL DEFAULT] The time is over! Contract expired {abs(d_days)} days prior to {checkpoint_date_str} "
-                f"(ended {end_date_str}). Quillhub is now operating outside contractual coverage; late fees, financial penalties, "
-                f"and potential default liabilities apply and must be settled immediately."
+                f"[OVERDUE] The time is over: Contract expired {abs(d_days)} days prior to {checkpoint_date_str} (ended {end_date_str}).\n"
+                f"Quillhub is operating outside contractual coverage; late fees, financial penalties, and default liabilities apply."
             )
 
     def evaluate_portfolio(

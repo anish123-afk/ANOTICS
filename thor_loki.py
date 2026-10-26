@@ -35,65 +35,64 @@ if hasattr(sys.stderr, "reconfigure"):
 
 import chromadb
 from pydantic import BaseModel, Field
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_ollama import OllamaEmbeddings
+
+# Standard LangChain OllamaEmbeddings instance for bge-m3
+embeddings = OllamaEmbeddings(
+    model="bge-m3"
+)
 
 from odin_state import OdinState
 
 
 # ----------------------------------------------------------------------
-# Loki Prompt Placeholder (Insert your custom prompt here)
+# Loki Prompt Template
+# Strictly constrained prompt template yielding ONLY the required answers:
+# - query: active user query
+# - content: full retrieved document content
+# - retrieved_clause_content: specific extracted clause text
+# (Also available: retrived_clause_content, document_name, contract_id, clause_id)
 # ----------------------------------------------------------------------
-LOKI_PROMPT = """You are LOKI, the Adversarial Review and Legal Attack Agent for Project Odin (Multi-Agent Contract Intelligence System).
+LOKI_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    ("system", """You are LOKI, the Legal & Contract Intelligence Agent for Project Odin.
 
-Your role is to embody the counterparty's most aggressive, cut-throat legal counsel. You do not review contracts to see if things are going well; you review contracts to find every conceivable legal vulnerability, hidden trapdoor, cross-contract contradiction, and unrecoverable liability that could be weaponized against Quillhub.
+Your mandate is to provide ONLY the required, directly relevant answer to the user query based strictly on the retrieved contract clause.
 
-================================================================================
-CORE MANDATE & RESPONSIBILITIES (FR4)
-================================================================================
+STRICT OPERATIONAL RULES:
+1. ONLY THE REQUIRED ANSWER: Answer what was asked immediately, concisely, and factually. Do not provide conversational filler, disclaimers, or preambles (e.g., no "Certainly!", "Based on the clause provided...", "Here is my analysis...").
+2. EVIDENCE ANCHORED: Ground your answer in the retrieved clause content. Cite the specific Clause ID/section and quote operative terms verbatim.
+3. CONCISE & ACTIONABLE: Keep explanations tight and focused directly on resolving the user's specific query.
+4. ADVERSARIAL RISK: Include one concise sentence stating the counterparty's potential attack vector or legal exposure under this clause.
 
-1. ADVERSARIAL CONTRACT REVIEW (FR4.1)
-   - Read contracts from the perspective of an opposing litigator looking to sue Quillhub, extract maximum damages, or escape unfavorable terms.
-   - Actively identify:
-     * One-sided terms: Asymmetrical termination rights, unilateral fee changes, or uncapped indemnification obligations.
-     * Vague or weaponizable standards: Ambiguous definitions of "commercially reasonable efforts," "material breach," or subjective satisfaction criteria.
-     * Silent defaults: Inaction traps, such as auto-renewal windows that renew automatically unless Quillhub serves notice under strict formalities.
-     * Severe penalty triggers: Liquidated damages, service credits, penalty interest compounding, and forfeiture of intellectual property.
+FORMAT YOUR RESPONSE IN EXACTLY THIS THREE-PART STRUCTURE (NO OTHER TEXT):
+• DIRECT ANSWER: <Immediate, factual answer directly addressing the user's query>
+• GOVERNING CLAUSE: <Clause ID / title and key verbatim phrase from text>
+• ADVERSARIAL EXPOSURE: <1 concise sentence detailing the legal trapdoor, penalty, or compliance risk>"""),
+    ("human", """User Query:
+{query}
 
-2. CROSS-CONTRACT CONFLICT DETECTION (FR4.2)
-   - Analyze relationships between upstream providers (e.g., StratoNode A1/A2/A3) and downstream customers (e.g., Harbor Retail B1/B2, Logix C1, Contractors D1).
-   - Uncover catastrophic liability gaps:
-     * Uptime / SLA Mismatch: Quillhub promising 99.99% availability to Customer B1 while its cloud host A1 only guarantees 99.5% uptime.
-     * Limitation of Liability Contradictions: Quillhub accepting uncapped data breach liability downstream while its upstream host's liability is capped at $5,000.
-     * Territorial / Exclusivity Clashes: Granting exclusive distribution rights to Customer B1 that conflict with vendor terms in Agreement C1.
-     * Amendment Precedence Traps: Determining whether an amendment (e.g. A3) quietly stripped away protections granted in master agreement A1 or SLA A2.
+Contract Metadata:
+- Document Name: {document_name}
+- Contract ID: {contract_id}
+- Clause ID: {clause_id}
 
-3. ATTACK PATH MODELING & RISK SCORING (FR4.3)
-   - For every vulnerability you uncover, construct a reasoned "Attack Path":
-     * Step-by-step narrative of how opposing counsel will frame the claim in litigation or arbitration.
-     * The exact financial or operational damages Quillhub faces.
-   - Assign two independent scores to each finding:
-     * Severity: LOW | MEDIUM | HIGH | CRITICAL (potential damage scale).
-     * Likelihood: LOW | MEDIUM | HIGH (probability of being triggered/enforced).
+Retrieved Clause Content:
+```
+{retrieved_clause_content}
+```
 
-================================================================================
-STRICT OPERATIONAL RULES & EVIDENCE STANDARDS
-================================================================================
+Full Document Context:
+```
+{content}
+```
 
-1. EVIDENCE ANCHORING (ZERO HALLUCINATION):
-   - Every attack, trapdoor, and conflict you cite MUST reference exact Clause IDs (e.g., "B1-Sec-11.4", "A1-Sec-8.2") and quote the governing source text verbatim.
-   - You are prohibited from inventing fictional breach clauses or fabricating indemnification obligations.
+Provide ONLY the required answer conforming strictly to the requested three-part structure.""")
+])
 
-2. TIMELINE GROUNDING (RESPECT NORNS):
-   - Ground your attacks in the current simulated checkpoint provided by Norns.
-   - Do NOT declare an active breach on an obligation if Norns indicates the deadline is still upcoming. 
-   - Attack upcoming deadlines by modeling the imminent disaster if Quillhub fails to act before the window shuts.
-
-3. DISPUTE READINESS AGAINST HEIMDALL:
-   - Formulate your risk claims with precise legal citations so they can stand up to scrutiny when Heimdall (Event Monitoring) attempts to defend Quillhub with operational event logs.
-
-================================================================================
-OUTPUT FORMAT REQUIREMENT
-================================================================================
-You must always output your findings as valid, parseable JSON conforming strictly to the requested schema. Never output conversational prose outside the JSON structure."""
+# Backwards compatibility alias
+LOKI_PROMPT = LOKI_PROMPT_TEMPLATE
 
 
 # ----------------------------------------------------------------------
@@ -163,8 +162,15 @@ def embed_query_with_ollama(
     timeout: int = 30
 ) -> Optional[List[float]]:
     """
-    Generates embedding for a single query using local Ollama bge-m3.
+    Generates embedding for a single query using local Ollama bge-m3 via langchain_ollama.
     """
+    try:
+        emb_client = OllamaEmbeddings(model=model, base_url=base_url)
+        return emb_client.embed_query(text)
+    except Exception:
+        pass
+
+    # Direct fallback if langchain_ollama client encounters network timeout or alternate API
     url = f"{base_url.rstrip('/')}/api/embed"
     payload = json.dumps({"model": model, "input": [text]}).encode("utf-8")
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
@@ -270,6 +276,7 @@ class ThorAgent:
                     meta = results["metadatas"][0][0]
                     dist = results["distances"][0][0] if "distances" in results else 0.0
                     doc_code = target_contract_id or meta.get("contract_id", "UNKNOWN")
+                    doc_text = results["documents"][0][0] if "documents" in results and results["documents"] else ""
                     extracted_doc = {
                         "clause_id": meta.get("clause_id", "General"),
                         "document_name": doc_code,  # Document name like A1, A2, B2
@@ -277,7 +284,9 @@ class ThorAgent:
                         "page_number": int(meta.get("page_number", 1)),
                         "chunk_id": meta.get("chunk_id", "chunk_001"),
                         "cosine_similarity": round(1.0 - dist, 4),
-                        "snippet": results["documents"][0][0][:200]
+                        "content": doc_text,
+                        "clause_text": doc_text,
+                        "snippet": doc_text[:300] + ("..." if len(doc_text) > 300 else "")
                     }
             except Exception as e:
                 print(f"[Thor WARN] Chroma query error: {e}")
@@ -306,10 +315,10 @@ class ThorAgent:
         target_contract_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Deterministic fallback retrieval if vector store is offline.
-        Uses manifest and contract text files.
+        Deterministic retrieval from canonical contract text files when vector store is offline.
+        Reads actual contract text and extracts the operative clause content.
         """
-        # Load manifest to find contracts
+        # Determine target document code (e.g. B2, A2, STD)
         cid = target_contract_id or "B2"
         doc_code = cid.upper()
 
@@ -322,28 +331,82 @@ class ThorAgent:
                     if target_contract_id and c["contract_id"].upper() == target_contract_id.upper():
                         doc_code = c["contract_id"].upper()
                         break
-                    elif not target_contract_id and ("b2" in query.lower() or "dpa" in query.lower() or "security" in query.lower()):
-                        if c["contract_id"] == "B2":
+                    elif not target_contract_id:
+                        c_id = c["contract_id"].lower()
+                        if c_id in query.lower():
+                            doc_code = c["contract_id"].upper()
+                            break
+                        elif "security" in query.lower() or "dpa" in query.lower() or "breach" in query.lower():
                             doc_code = "B2"
+                            break
+                        elif "sla" in query.lower() or "uptime" in query.lower() or "credit" in query.lower():
+                            doc_code = "A2"
                             break
             except Exception:
                 pass
 
-        clause = "Section 2.1" if "security" in query.lower() or "b2" in doc_code.lower() else "Section 1.1"
+        # Read actual contract text from file
+        txt_path = os.path.join("bundle", "contracts", f"{doc_code}.txt")
+        clause_id = "Section 1.1"
+        clause_content = ""
+        page_num = 1
+
+        if os.path.exists(txt_path):
+            try:
+                with open(txt_path, "r", encoding="utf-8", errors="replace") as f:
+                    full_text = f.read()
+
+                # Split on section demarcations
+                raw_sections = re.split(r"(?i)(?=\n(?:SECTION|Section)\s+[A-Z0-9]+)", full_text)
+                sections = [s.strip() for s in raw_sections if s.strip()]
+
+                best_section = None
+                best_score = -1
+
+                query_words = set(re.findall(r"\w+", query.lower()))
+
+                for sec in sections:
+                    sec_lower = sec.lower()
+                    overlap = sum(1 for w in query_words if len(w) > 3 and w in sec_lower)
+                    if overlap > best_score:
+                        best_score = overlap
+                        best_section = sec
+
+                if not best_section and sections:
+                    best_section = sections[1] if len(sections) > 1 else sections[0]
+
+                if best_section:
+                    clause_content = best_section
+                    # Extract header for clause_id
+                    header_match = re.search(r"((?:SECTION|Section)\s+[A-Z0-9]+[^\n\r]*)", best_section)
+                    if header_match:
+                        clause_id = header_match.group(1).strip()
+                    else:
+                        clause_id = "Operative Terms"
+                    page_num = 2 if len(full_text) > 3000 else 1
+            except Exception as e:
+                print(f"[Thor WARN] Could not read {txt_path}: {e}")
+
+        if not clause_content:
+            clause_id = "Section 2.1" if doc_code == "B2" else "Section 1.1"
+            clause_content = f"Standard contract terms and obligations for {doc_code} governing query '{query}'."
+
         return {
-            "clause_id": clause,
+            "clause_id": clause_id,
             "document_name": doc_code,
             "contract_id": doc_code,
-            "page_number": 2 if doc_code == "B2" else 1,
-            "chunk_id": f"{doc_code}_p1_c002",
+            "page_number": page_num,
+            "chunk_id": f"{doc_code}_p{page_num}_c001",
             "cosine_similarity": 0.9421,
-            "snippet": f"Fallback retrieval excerpt for {doc_code} under query '{query}'."
+            "content": clause_content,
+            "clause_text": clause_content,
+            "snippet": clause_content[:300] + ("..." if len(clause_content) > 300 else "")
         }
 
     def get_final_json(self) -> str:
         """
         Returns final JSON formatted strictly with required fields:
-        clause_id, document_name, contract_id, page_number, chunk_id.
+        clause_id, document_name, contract_id, page_number, chunk_id, and full content.
         Matches document_name against Atreus CSV to populate the formal legal contract_id.
         """
         if not self.local_state.retrieved_documents:
@@ -352,7 +415,8 @@ class ThorAgent:
                 "document_name": "N/A",
                 "contract_id": "N/A",
                 "page_number": 0,
-                "chunk_id": "N/A"
+                "chunk_id": "N/A",
+                "content": "N/A"
             }, indent=2)
 
         last_doc = self.local_state.retrieved_documents[-1]
@@ -360,13 +424,20 @@ class ThorAgent:
         
         # Match document name (e.g. A1, B2) against Atreus CSV to get formal legal contract_id
         formal_contract_id = get_contract_id_from_atreus_csv(doc_name)
+        clause_content = (
+            last_doc.get("content") or 
+            last_doc.get("clause_text") or 
+            last_doc.get("snippet") or 
+            ""
+        )
 
         output = {
             "clause_id": last_doc.get("clause_id"),
             "document_name": doc_name,
             "contract_id": formal_contract_id,
             "page_number": last_doc.get("page_number"),
-            "chunk_id": last_doc.get("chunk_id")
+            "chunk_id": last_doc.get("chunk_id"),
+            "content": clause_content
         }
         return json.dumps(output, indent=2)
 
@@ -389,13 +460,15 @@ class LokiAgent:
         extra_catalog: Optional[List[str]] = None,
         model_name: str = "claude-3-5-haiku-20241022",
         api_key: Optional[str] = None,
-        use_mock: bool = False
+        use_mock: bool = False,
+        prompt_template: Optional[Any] = None
     ):
         self.manifest_path = manifest_path
         self.catalog = self._load_catalog(extra_catalog)
         self.model_name = model_name
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self.use_mock = use_mock
+        self.prompt_template = prompt_template or LOKI_PROMPT_TEMPLATE
         self.llm = None
 
         if not self.use_mock and self.api_key:
@@ -475,7 +548,11 @@ class LokiAgent:
     def interpret_final_document(self, odin_state: OdinState) -> str:
         """
         Gets the final retrieved document from the updated OdinState,
-        invokes Claude Haiku using LOKI_PROMPT, and updates odin_state.loki_interpretation.
+        invokes Claude Haiku using LOKI_PROMPT_TEMPLATE with dynamic input variables:
+        - query
+        - content
+        - retrieved_clause_content
+        and updates odin_state.loki_interpretation.
         """
         final_doc = odin_state.retrieved_document or {}
         doc_name = final_doc.get("document_name", "Unknown")
@@ -484,42 +561,54 @@ class LokiAgent:
         snippet = final_doc.get("snippet", "")
         query = odin_state.query
 
-        print(f"\n[🦊 LOKI] Interpreting final retrieved document [{doc_name}] with Claude Haiku...")
+        # Extract content & retrieved_clause_content directly from OdinState
+        content = (
+            final_doc.get("content") or 
+            final_doc.get("clause_text") or 
+            snippet or 
+            ""
+        )
+        retrieved_clause_content = (
+            odin_state.retrieved_clause_content or 
+            content
+        )
 
-        # Prompt placeholder designated by user
-        system_prompt = LOKI_PROMPT
+        template_inputs = {
+            "query": query,
+            "content": content,
+            "retrieved_clause_content": retrieved_clause_content,
+            "retrived_clause_content": retrieved_clause_content,  # alias for user's spelling
+            "document_name": doc_name,
+            "contract_id": contract_id,
+            "clause_id": clause_id,
+            "page_number": final_doc.get("page_number", 1),
+            "chunk_id": final_doc.get("chunk_id", ""),
+            "snippet": snippet
+        }
+
+        print(f"\n[🦊 LOKI] Interpreting final retrieved document [{doc_name}] with Prompt Template...")
+        print(f"         - Input query: '{query}'")
+        print(f"         - Input content: {len(content)} chars")
+        print(f"         - Input retrieved_clause_content: {len(retrieved_clause_content)} chars")
 
         if self.use_mock or self.llm is None:
             interpretation = (
-                f"[Loki Interpretation ({self.model_name})]: Final document '{doc_name}' ({contract_id}) "
-                f"analyzed under query '{query}'. Target clause is '{clause_id}'."
+                f"• DIRECT ANSWER: Under document {doc_name} ({contract_id}), provisions governing '{query}' are established by {clause_id}.\n"
+                f"• GOVERNING CLAUSE: {clause_id} — Verbatim operative excerpt: \"{retrieved_clause_content[:180].strip()}...\"\n"
+                f"• ADVERSARIAL EXPOSURE: Strict performance covenants and unilateral notice requirements in {clause_id} create potential breach liability if Quillhub fails to comply."
             )
         else:
             try:
-                from langchain_core.prompts import ChatPromptTemplate
-                prompt = ChatPromptTemplate.from_messages([
-                    ("system", system_prompt),
-                    ("human", "Final Retrieved Document Information:\n"
-                              "- Document Name: {doc_name}\n"
-                              "- Contract ID: {contract_id}\n"
-                              "- Clause ID: {clause_id}\n"
-                              "- Page: {page_number}\n"
-                              "- Chunk ID: {chunk_id}\n"
-                              "- Relevant Text Excerpt:\n```\n{snippet}\n```\n\nQuery: {query}")
-                ])
-                chain = prompt | self.llm
-                resp = chain.invoke({
-                    "doc_name": doc_name,
-                    "contract_id": contract_id,
-                    "clause_id": clause_id,
-                    "page_number": final_doc.get("page_number", 1),
-                    "chunk_id": final_doc.get("chunk_id", ""),
-                    "snippet": snippet,
-                    "query": query
-                })
-                interpretation = resp.content.strip()
+                from langchain_core.output_parsers import StrOutputParser
+                chain = self.prompt_template | self.llm | StrOutputParser()
+                resp = chain.invoke(template_inputs)
+                interpretation = resp.strip()
             except Exception as e:
-                interpretation = f"[Loki Interpretation Fallback]: Evaluated {doc_name} for '{query}'. (Error: {e})"
+                interpretation = (
+                    f"• DIRECT ANSWER: Evaluated {doc_name} under '{query}'.\n"
+                    f"• GOVERNING CLAUSE: {clause_id}\n"
+                    f"• ADVERSARIAL EXPOSURE: Contract covenants require strict compliance. (Error: {e})"
+                )
 
         # Update common state with the output of LLM
         odin_state.update_loki_interpretation(interpretation)

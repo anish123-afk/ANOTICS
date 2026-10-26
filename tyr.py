@@ -27,6 +27,8 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from odin_state import OdinState
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
 # Load environment variables (e.g. ANTHROPIC_API_KEY)
 try:
@@ -37,96 +39,112 @@ except ImportError:
 
 
 # ----------------------------------------------------------------------
-# Prompt 1: Tyr Final Judgment Prompt Placeholder
-# (Takes loki_interpretation + heimdall_review to produce final_judgment)
+# Prompt 1: Tyr Final Judgment Prompt Template
+# Strictly constrained prompt template yielding ONLY the required judgment:
+# Inputs:
+# - query: active user query from OdinState
+# - content: full retrieved document content from OdinState
+# - retrieved_clause_content: extracted operative clause text from OdinState
+# - loki_interpretation: Loki's adversarial legal interpretation
+# - heimdall_review: Heimdall's operational event analysis
+# - event_json: extracted event JSON with highest similarity
 # ----------------------------------------------------------------------
-TYR_JUDGMENT_PROMPT = """You are TYR, the Supreme Arbitrator and Judicial Ruling Agent for Project Odin (Multi-Agent Contract Intelligence System).
+TYR_JUDGMENT_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    ("system", """You are TYR, the Supreme Arbitrator and Judicial Ruling Agent for Project Odin.
 
-You are the impartial judge of the high court. You do not favor Quillhub, nor do you favor opposing counsel. Your sole duty is to impartially weigh the hostile contractual allegations of Loki against the operational event defense presented by Heimdall, and deliver a definitive, legally sound ruling.
+Your task is to impartially weigh Loki's adversarial legal interpretation against Heimdall's operational event defense, evaluated in the context of the governing contract clause, and render ONLY the required judicial ruling.
 
-================================================================================
-INPUTS AVAILABLE IN STATE
-================================================================================
-1. `loki_interpretation`: The adversarial attack path, alleging contractual breach, one-sided terms, cross-contract contradictions, or liquidated damages.
-2. `heimdall_review`: The operational defense, citing real-world telemetry, maintenance windows, ticket logs, or curing events.
+STRICT OPERATIONAL RULES:
+1. ONLY THE REQUIRED ANSWER: Deliver the judicial ruling directly and factually. Do not provide conversational filler, pleasantries, or introductory chatter (e.g., no "Certainly!", "As Supreme Arbiter...", "Here is my judgment...").
+2. EVIDENCE ANCHORED: Whichever position is proven by the contract clause text and the verified event telemetry prevails.
+3. CONCISE & DEFINITIVE: State the verdict, synthesize the conflict in 1-2 tight sentences, cite the key clause and event IDs, and specify the exact financial exposure or credit amount.
 
-================================================================================
-JUDICIAL EVALUATION RULES (FR6.1)
-================================================================================
-1. STRICT ADMISSIBILITY OF EVIDENCE:
-   - Claims unsupported by exact clause IDs or verifiable event IDs must be discounted.
-   - Do NOT declare a winner based on rhetoric. Whichever party provides superior, uncontradicted evidence prevails.
+FORMAT YOUR RESPONSE IN EXACTLY THIS FOUR-PART STRUCTURE (NO OTHER TEXT):
+• VERDICT: <FINDING_SUPPORTED | FINDING_REJECTED | FINDING_REVISED | COMPROMISE>
+• FACTUAL & LEGAL SYNTHESIS: <Direct 1-2 sentence ruling balancing Loki's legal claim against Heimdall's event proof and the contract clause>
+• GOVERNING EVIDENCE: <Specific Clause ID and Event ID that determined this ruling>
+• CONFIRMED LIABILITY / REMEDY: <Exact financial exposure, service credit percentage/amount, or contractual penalty determined>"""),
+    ("human", """User Query:
+{query}
 
-2. STANDARD OF REVIEW:
-   - If Heimdall proves an operational event satisfied a contractual safe harbor (e.g., pre-approved maintenance, force majeure, payment within cure window), Loki's claim must be REJECTED or REVISED.
-   - If Loki's contract citation is ironclad and Heimdall's logs show the violation occurred without excuse, Loki's claim must be SUPPORTED.
-   - If the terms are mutually contradictory or facts cannot be verified, rule INSUFFICIENT_EVIDENCE or HUMAN_REVIEW_REQUIRED.
+Retrieved Contract Clause Content:
+```
+{retrieved_clause_content}
+```
 
-3. ALLOWABLE RULING VERDICTS:
-   - `FINDING_SUPPORTED`: Loki's risk claim is factually and contractually substantiated.
-   - `FINDING_REJECTED`: Heimdall successfully proved compliance or an applicable contractual exception.
-   - `FINDING_REVISED`: The risk exists, but the liability scope, penalty amount, or severity must be adjusted.
-   - `INSUFFICIENT_EVIDENCE`: Documents or event logs lack sufficient clarity to rule.
-   - `HUMAN_REVIEW_REQUIRED`: Irreconcilable legal clash requiring General Counsel discretion.
+Full Document Context:
+```
+{content}
+```
 
-================================================================================
-REQUIRED JSON OUTPUT SCHEMA (Saves to `final_judgment`)
-================================================================================
-You must respond ONLY with a valid, parseable JSON object matching this structure:
+=== LOKI'S ADVERSARIAL LEGAL INTERPRETATION ===
+{loki_interpretation}
 
-{
-  "ruling_verdict": "FINDING_SUPPORTED | FINDING_REJECTED | FINDING_REVISED | INSUFFICIENT_EVIDENCE | HUMAN_REVIEW_REQUIRED",
-  "dispute_summary": "Concise summary of the conflict between Loki and Heimdall",
-  "prevailing_party": "LOKI | HEIMDALL | NEITHER | COMPROMISE",
-  "legal_rationale": "Comprehensive, evidence-based legal reasoning explaining why the evidence favored this outcome",
-  "admitted_evidence_ids": ["Clause IDs and Event IDs that determined the verdict"],
-  "confirmed_financial_exposure": 0.0,
-  "confidence_score": 0.95
-}"""
+=== HEIMDALL'S OPERATIONAL EVENT REVIEW ===
+{heimdall_review}
+
+=== TOP MATCHED OPERATIONAL EVENT JSON ===
+```json
+{event_json}
+```
+
+Provide ONLY the required judicial ruling conforming strictly to the requested four-part structure.""")
+])
+
+# Backwards compatibility alias
+TYR_JUDGMENT_PROMPT = TYR_JUDGMENT_PROMPT_TEMPLATE
 
 
 # ----------------------------------------------------------------------
-# Prompt 2: Tyr Final Answer Prompt Placeholder
-# (Takes final_judgment to derive final_ans)
+# Prompt 2: Tyr Final Answer Prompt Template
+# Strictly constrained prompt template yielding ONLY the required answer:
+# Inputs:
+# - query: active user query from OdinState
+# - content: full retrieved document content from OdinState
+# - retrieved_clause_content: extracted operative clause text from OdinState
+# - final_judgment: synthesized ruling from Tyr
+# - event_json: extracted event JSON with highest similarity
 # ----------------------------------------------------------------------
-TYR_FINAL_ANSWER_PROMPT = """You are TYR in your capacity as Senior Legal Counsel and Action Drafting Agent for Project Odin.
+TYR_FINAL_ANSWER_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    ("system", """You are TYR in your capacity as Senior Legal Counsel and Final Decision Engine for Project Odin.
 
-Your task is to take the binding judicial decision stored in `final_judgment` and convert it into a concrete, ready-to-send legal document or internal escalation memorandum. 
+Your task is to convert Tyr's judicial ruling (`final_judgment`) into the definitive, actionable resolution that answers the user's query.
 
-SAFETY BOUNDARY (FR6.3): Drafting is NOT execution. You do not send emails or unilaterally terminate agreements. Every proposed action must be flagged with explicit human approval controls.
+STRICT OPERATIONAL RULES:
+1. ONLY THE REQUIRED ANSWER: Output the definitive resolution and actionable next step immediately. No preambles, pleasantries, or conversational filler.
+2. CONCISE & ACTIONABLE: Provide the direct settlement answer, the immediate operational/legal action required, and the governing citations.
+3. ACCURATE TO JUDGMENT: Ground the answer strictly in the ruling, clause content, and event facts.
 
-================================================================================
-ACTION DRAFTING GUIDELINES (FR6.2 & FR6.3)
-================================================================================
-1. VERDICT-DRIVEN ACTIONS:
-   - If `final_judgment` is `FINDING_SUPPORTED` (Risk/Breach confirmed):
-     * Draft an urgent Notice of Breach, Cure Demand, or Non-Renewal Cancellation.
-   - If `final_judgment` is `FINDING_REJECTED` (Heimdall defended successfully):
-     * Draft a Rebuttal Memorandum or formal response letter refuting the counterparty's claim, citing Heimdall's event proof.
-   - If `final_judgment` is `FINDING_REVISED` or `HUMAN_REVIEW_REQUIRED`:
-     * Draft an Executive Legal Escalation Brief summarizing the ambiguity for the General Counsel.
+FORMAT YOUR RESPONSE IN EXACTLY THIS THREE-PART STRUCTURE (NO OTHER TEXT):
+• DEFINITIVE RESOLUTION: <Clear, decisive answer resolving the user's specific query based on the ruling>
+• IMMEDIATE ACTION REQUIRED: <Exact legal, financial, or operational action to execute>
+• GOVERNING CITATION: <Contract ID, Clause ID, and Event ID governing the resolution>"""),
+    ("human", """User Query:
+{query}
 
-2. DRAFTING STANDARDS:
-   - The notice text must be complete, professional, and ready to send.
-   - It must explicitly cite the governing Contract Name, Section/Clause numbers, key dates, and exact financial or corrective remedies demanded.
-   - Avoid placeholder brackets like "[Insert Date]" — pull the exact dates and amounts from the judgment and contract facts.
+Retrieved Contract Clause Content:
+```
+{retrieved_clause_content}
+```
 
-================================================================================
-REQUIRED JSON OUTPUT SCHEMA (Saves to `final_answer`)
-================================================================================
-You must respond ONLY with a valid, parseable JSON object matching this structure:
+Full Document Context:
+```
+{content}
+```
 
-{
-  "action_type": "NOTICE_OF_NON_RENEWAL | NOTICE_OF_BREACH | CURE_DEMAND | REBUTTAL_MEMO | INTERNAL_LEGAL_ESCALATION",
-  "target_recipient": "Counterparty Name, Legal Department / Counsel",
-  "governing_contract": "Contract ID / Title",
-  "formal_notice_subject": "Formal title of the legal letter",
-  "formal_notice_body": "Full, complete, ready-to-send text of the formal legal letter or memorandum...",
-  "statutory_or_contractual_deadline": "YYYY-MM-DD or immediate",
-  "confidence_level": 0.95,
-  "requires_human_approval": true,
-  "human_approval_reason": "High-impact legal notice altering contractual liability; requires General Counsel sign-off prior to dispatch."
-}"""
+=== TYR'S FINAL JUDGMENT ===
+{final_judgment}
+
+=== TOP MATCHED OPERATIONAL EVENT JSON ===
+```json
+{event_json}
+```
+
+Provide ONLY the required final answer conforming strictly to the requested three-part structure.""")
+])
+
+# Backwards compatibility alias
+TYR_FINAL_ANSWER_PROMPT = TYR_FINAL_ANSWER_PROMPT_TEMPLATE
 
 
 # ----------------------------------------------------------------------
@@ -144,10 +162,14 @@ class TyrAgent:
     def __init__(
         self,
         model_name: str = "claude-3-5-haiku-20241022",
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
+        judgment_prompt_template: Optional[Any] = None,
+        final_answer_prompt_template: Optional[Any] = None
     ):
         self.model_name = model_name
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
+        self.judgment_prompt_template = judgment_prompt_template or TYR_JUDGMENT_PROMPT_TEMPLATE
+        self.final_answer_prompt_template = final_answer_prompt_template or TYR_FINAL_ANSWER_PROMPT_TEMPLATE
 
         self.llm = None
         self.use_mock = False
@@ -165,90 +187,152 @@ class TyrAgent:
         else:
             self.use_mock = True
 
-    def synthesize_judgment(self, odin_state: OdinState) -> str:
+    def synthesize_judgment(
+        self,
+        odin_state: OdinState,
+        matched_event: Optional[Dict[str, Any]] = None
+    ) -> str:
         """
-        Step 1: Takes loki_interpretation and heimdall_review from OdinState.
-        Uses Claude Haiku with TYR_JUDGMENT_PROMPT to generate final_judgment.
+        Step 1: Uses TYR_JUDGMENT_PROMPT_TEMPLATE with dynamic input variables:
+        - query
+        - content
+        - retrieved_clause_content
+        - loki_interpretation
+        - heimdall_review
+        - event_json
+        and updates odin_state.final_judgment.
         """
         query = odin_state.query
+        retrieved_doc = odin_state.retrieved_document or {}
+        content = (
+            retrieved_doc.get("content") or 
+            retrieved_doc.get("clause_text") or 
+            retrieved_doc.get("snippet") or 
+            ""
+        )
+        retrieved_clause_content = (
+            odin_state.retrieved_clause_content or 
+            content or 
+            "No clause content available in state."
+        )
         loki_text = odin_state.loki_interpretation or "No Loki interpretation available."
         heimdall_text = odin_state.heimdall_review or "No Heimdall review available."
 
-        print(f"\n[⚖️ TYR] Step 1: Synthesizing Final Judgment with Claude Haiku...")
-        print(f"       - Input 1: loki_interpretation ({len(loki_text)} chars)")
-        print(f"       - Input 2: heimdall_review ({len(heimdall_text)} chars)")
+        # Get matched event JSON
+        event_obj = matched_event or getattr(odin_state, "matched_event", None) or {}
+        event_clean = {k: v for k, v in event_obj.items() if not str(k).startswith("_")}
+        event_json_str = json.dumps(event_clean, indent=2, ensure_ascii=False) if event_clean else "{}"
+
+        template_inputs = {
+            "query": query,
+            "content": content,
+            "retrieved_clause_content": retrieved_clause_content,
+            "retrived_clause_content": retrieved_clause_content,  # spelling alias
+            "loki_interpretation": loki_text,
+            "heimdall_review": heimdall_text,
+            "event_json": event_json_str,
+            "matched_event_json": event_json_str,
+            "document_name": retrieved_doc.get("document_name", "Unknown"),
+            "contract_id": retrieved_doc.get("contract_id", "Unknown"),
+            "clause_id": retrieved_doc.get("clause_id", "Unknown")
+        }
+
+        print(f"\n[⚖️ TYR] Step 1: Synthesizing Final Judgment with Prompt Template...")
+        print(f"       - Input query: '{query}'")
+        print(f"       - Input loki_interpretation: {len(loki_text)} chars")
+        print(f"       - Input heimdall_review: {len(heimdall_text)} chars")
+        print(f"       - Input retrieved_clause_content: {len(retrieved_clause_content)} chars")
+        print(f"       - Input event_json: {len(event_json_str)} chars")
 
         if self.use_mock or self.llm is None:
             judgment = (
-                f"[Tyr Final Judgment ({self.model_name})]:\n"
-                f"Having weighed the adversarial legal exposures presented by Loki:\n"
-                f"{loki_text[:200]}...\n\n"
-                f"Against the factual incident log and operational records surfaced by Heimdall:\n"
-                f"{heimdall_text[:200]}...\n\n"
-                f"Judgment on Query '{query}': Quillhub's position is evaluated by balancing contractual "
-                f"SLA liability against proven external infrastructure outage logs."
+                f"• VERDICT: FINDING_REVISED\n"
+                f"• FACTUAL & LEGAL SYNTHESIS: Weighing Loki's legal attack regarding '{query}' against Heimdall's verified event log ({event_obj.get('event_id', 'E-05')}), the contractual claim is partially substantiated by real-world telemetry.\n"
+                f"• GOVERNING EVIDENCE: Contract {retrieved_doc.get('document_name', 'B2')} ({retrieved_doc.get('clause_id', 'Operative Terms')}) and Event {event_obj.get('event_id', 'E-05')}.\n"
+                f"• CONFIRMED LIABILITY / REMEDY: Liability is capped per standard terms, and service credits apply strictly for verified downtime minutes."
             )
-            odin_state.update_final_judgment(judgment)
-            return judgment
-
-        try:
-            from langchain_core.prompts import ChatPromptTemplate
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", TYR_JUDGMENT_PROMPT),
-                ("human", "Core Legal & Operational Query: {query}\n\n"
-                          "=== LOKI'S ADVERSARIAL LEGAL INTERPRETATION ===\n{loki_input}\n\n"
-                          "=== HEIMDALL'S OPERATIONAL EVENT REVIEW ===\n{heimdall_input}\n\n"
-                          "Please synthesize these two findings and render your supreme judgment.")
-            ])
-            chain = prompt | self.llm
-            resp = chain.invoke({
-                "query": query,
-                "loki_input": loki_text,
-                "heimdall_input": heimdall_text
-            })
-            judgment = resp.content.strip()
-        except Exception as e:
-            judgment = f"[Tyr Judgment Fallback]: Synthesized findings for '{query}'. (Error: {e})"
+        else:
+            try:
+                chain = self.judgment_prompt_template | self.llm | StrOutputParser()
+                judgment = chain.invoke(template_inputs).strip()
+            except Exception as e:
+                judgment = (
+                    f"• VERDICT: COMPROMISE\n"
+                    f"• FACTUAL & LEGAL SYNTHESIS: Synthesized findings for '{query}'.\n"
+                    f"• GOVERNING EVIDENCE: {retrieved_doc.get('clause_id', 'Clause')} & {event_obj.get('event_id', 'Event')}\n"
+                    f"• CONFIRMED LIABILITY / REMEDY: Reconcile operational telemetry against agreed SLA schedule. (Error: {e})"
+                )
 
         odin_state.update_final_judgment(judgment)
         print("       -> Successfully stored 'final_judgment' in OdinState!")
         return judgment
 
-    def derive_final_answer(self, odin_state: OdinState) -> str:
+    def derive_final_answer(
+        self,
+        odin_state: OdinState,
+        matched_event: Optional[Dict[str, Any]] = None
+    ) -> str:
         """
-        Step 2: Takes final_judgment from OdinState.
-        Uses Claude Haiku with TYR_FINAL_ANSWER_PROMPT to generate final_ans.
+        Step 2: Uses TYR_FINAL_ANSWER_PROMPT_TEMPLATE with dynamic input variables:
+        - query
+        - content
+        - retrieved_clause_content
+        - final_judgment
+        - event_json
+        and updates odin_state.final_ans.
         """
         query = odin_state.query
+        retrieved_doc = odin_state.retrieved_document or {}
+        content = (
+            retrieved_doc.get("content") or 
+            retrieved_doc.get("clause_text") or 
+            retrieved_doc.get("snippet") or 
+            ""
+        )
+        retrieved_clause_content = (
+            odin_state.retrieved_clause_content or 
+            content or 
+            "No clause content available in state."
+        )
         judgment = odin_state.final_judgment or "No judgment available."
 
-        print(f"\n[⚖️ TYR] Step 2: Deriving Definitive Final Answer from Judgment...")
+        event_obj = matched_event or getattr(odin_state, "matched_event", None) or {}
+        event_clean = {k: v for k, v in event_obj.items() if not str(k).startswith("_")}
+        event_json_str = json.dumps(event_clean, indent=2, ensure_ascii=False) if event_clean else "{}"
+
+        template_inputs = {
+            "query": query,
+            "content": content,
+            "retrieved_clause_content": retrieved_clause_content,
+            "retrived_clause_content": retrieved_clause_content,  # spelling alias
+            "final_judgment": judgment,
+            "final_judgement": judgment,  # spelling alias
+            "event_json": event_json_str,
+            "matched_event_json": event_json_str,
+            "document_name": retrieved_doc.get("document_name", "Unknown"),
+            "contract_id": retrieved_doc.get("contract_id", "Unknown"),
+            "clause_id": retrieved_doc.get("clause_id", "Unknown")
+        }
+
+        print(f"\n[⚖️ TYR] Step 2: Deriving Definitive Final Answer with Prompt Template...")
+        print(f"       - Input final_judgment: {len(judgment)} chars")
 
         if self.use_mock or self.llm is None:
             ans = (
-                f"[Tyr Final Answer ({self.model_name})]:\n"
-                f"Definitive resolution for query '{query}': Based on Tyr's judgment, "
-                f"the recommended strategic action is to reconcile the operational log against the SLA credit schedule."
+                f"• DEFINITIVE RESOLUTION: In response to '{query}', apply the negotiated SLA service credit based on verified downtime telemetry without admitting general breach liability.\n"
+                f"• IMMEDIATE ACTION REQUIRED: Issue formal credit memorandum for the affected calendar month and update operational uptime records.\n"
+                f"• GOVERNING CITATION: Contract {retrieved_doc.get('contract_id', 'Agreement')} ({retrieved_doc.get('clause_id', 'SLA')}) & Incident Log {event_obj.get('event_id', 'E-05')}."
             )
-            odin_state.update_final_ans(ans)
-            return ans
-
-        try:
-            from langchain_core.prompts import ChatPromptTemplate
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", TYR_FINAL_ANSWER_PROMPT),
-                ("human", "Core Legal & Operational Query: {query}\n\n"
-                          "=== TYR'S FINAL JUDGMENT ===\n{judgment_input}\n\n"
-                          "Based on the judgment above, provide the final answer and actionable resolution.")
-            ])
-            chain = prompt | self.llm
-            resp = chain.invoke({
-                "query": query,
-                "judgment_input": judgment
-            })
-            ans = resp.content.strip()
-        except Exception as e:
-            ans = f"[Tyr Final Answer Fallback]: Resolution for '{query}'. (Error: {e})"
+        else:
+            try:
+                chain = self.final_answer_prompt_template | self.llm | StrOutputParser()
+                ans = chain.invoke(template_inputs).strip()
+            except Exception as e:
+                ans = (
+                    f"• DEFINITIVE RESOLUTION: Resolution for query '{query}'.\n"
+                    f"• IMMEDIATE ACTION REQUIRED: Reconcile operational telemetry with contract terms.\n"
+                    f"• GOVERNING CITATION: {retrieved_doc.get('contract_id', 'Agreement')}. (Error: {e})"
+                )
 
         odin_state.update_final_ans(ans)
         print("       -> Successfully stored 'final_ans' in OdinState!")
@@ -310,16 +394,17 @@ class TyrAgent:
         self,
         odin_state: OdinState,
         interactive_approval: bool = True,
-        auto_approve: Optional[bool] = None
+        auto_approve: Optional[bool] = None,
+        matched_event: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Full Execution Pipeline for Agent Tyr:
-        1. Synthesize final_judgment from loki_interpretation and heimdall_review.
-        2. Derive final_ans from final_judgment.
+        1. Synthesize final_judgment from loki_interpretation, heimdall_review, clause content, and event JSON.
+        2. Derive final_ans from final_judgment, clause content, and event JSON.
         3. Request human approval and update common state.
         """
-        judgment = self.synthesize_judgment(odin_state)
-        ans = self.derive_final_answer(odin_state)
+        judgment = self.synthesize_judgment(odin_state, matched_event=matched_event)
+        ans = self.derive_final_answer(odin_state, matched_event=matched_event)
         approved = self.request_human_approval(
             odin_state,
             interactive=interactive_approval,

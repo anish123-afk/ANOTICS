@@ -32,6 +32,12 @@ import pymupdf
 import chromadb
 from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_ollama import OllamaEmbeddings
+
+# Standard LangChain OllamaEmbeddings instance for bge-m3
+embeddings = OllamaEmbeddings(
+    model="bge-m3"
+)
 
 
 # ----------------------------------------------------------------------
@@ -39,7 +45,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 # ----------------------------------------------------------------------
 class OllamaBgeM3Embedder(EmbeddingFunction[Documents]):
     """
-    Embedding function that calls local Ollama server running bge-m3.
+    Embedding function that calls local Ollama server running bge-m3 using langchain_ollama.
     Compatible with ChromaDB's EmbeddingFunction interface.
     """
 
@@ -47,51 +53,38 @@ class OllamaBgeM3Embedder(EmbeddingFunction[Documents]):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        try:
+            self.embeddings = OllamaEmbeddings(
+                model=self.model,
+                base_url=self.base_url
+            )
+        except Exception:
+            self.embeddings = embeddings
 
     def _embed_batch(self, texts: List[str]) -> List[List[float]]:
-        # 1. Try batch /api/embed endpoint (modern Ollama >= 0.1.33)
-        embed_url = f"{self.base_url}/api/embed"
-        payload = json.dumps({"model": self.model, "input": texts}).encode("utf-8")
-        req = urllib.request.Request(
-            embed_url,
-            data=payload,
-            headers={"Content-Type": "application/json"}
-        )
-
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                if "embeddings" in data:
-                    return data["embeddings"]
-        except urllib.error.HTTPError as e:
-            # Fall back to single /api/embeddings if /api/embed is not available (404)
-            if e.code != 404:
-                raise RuntimeError(
-                    f"Ollama embedding API error (HTTP {e.code}): {e.read().decode('utf-8', errors='ignore')}"
-                ) from e
-        except urllib.error.URLError as e:
-            raise ConnectionError(
-                f"Could not connect to Ollama at {self.base_url}. "
-                f"Ensure Ollama is running ('ollama serve') and model '{self.model}' is installed ('ollama pull {self.model}'). "
-                f"Original error: {e}"
-            ) from e
-
-        # 2. Fallback to /api/embeddings per item
-        fallback_url = f"{self.base_url}/api/embeddings"
-        embeddings: List[List[float]] = []
-        for text in texts:
-            p = json.dumps({"model": self.model, "prompt": text}).encode("utf-8")
-            r = urllib.request.Request(fallback_url, data=p, headers={"Content-Type": "application/json"})
+            return self.embeddings.embed_documents(texts)
+        except Exception as e:
+            # Fallback to direct HTTP /api/embed if needed
+            embed_url = f"{self.base_url}/api/embed"
+            payload = json.dumps({"model": self.model, "input": texts}).encode("utf-8")
+            req = urllib.request.Request(
+                embed_url,
+                data=payload,
+                headers={"Content-Type": "application/json"}
+            )
             try:
-                with urllib.request.urlopen(r, timeout=self.timeout) as resp:
-                    res = json.loads(resp.read().decode("utf-8"))
-                    embeddings.append(res["embedding"])
-            except urllib.error.URLError as err:
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    if "embeddings" in data:
+                        return data["embeddings"]
+            except Exception:
                 raise ConnectionError(
-                    f"Could not connect to Ollama at {self.base_url}. Error: {err}"
-                ) from err
-
-        return embeddings
+                    f"Could not connect to Ollama at {self.base_url}. "
+                    f"Ensure Ollama is running ('ollama serve') and model '{self.model}' is installed ('ollama pull {self.model}'). "
+                    f"Original error: {e}"
+                ) from e
+            raise ConnectionError(f"Ollama embedding failure: {e}") from e
 
     def __call__(self, input: Documents) -> Embeddings:
         """Embed a list of documents (required by ChromaDB EmbeddingFunction)."""

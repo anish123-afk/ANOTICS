@@ -1,9 +1,17 @@
 contract_or_document_id,document_name,checkpoint_date,end_date,d_days,days_for_non_renewal_notice,status,financial_review
-STD,STD,2028-09-01,2028-07-31,-32,30,OVERDUE_PENALTIES,"[STATUS: CRITICAL DEFAULT] The time is over! Contract expired 32 days prior to 2028-09-01 (ended July 31, 2028). Quillhub is now operating outside contractual coverage; late fees, financial penalties, and potential default liabilities apply and must be settled immediately."
-QH-STRATO-2026-001,A1,2028-09-01,2028-07-31,-32,90,OVERDUE_PENALTIES,"[STATUS: CRITICAL DEFAULT] The time is over! Contract expired 32 days prior to 2028-09-01 (ended July 31, 2028). Quillhub is now operating outside contractual coverage; late fees, financial penalties, and potential default liabilities apply and must be settled immediately."
-QH-STRATO-2026-SLA,A2,2028-09-01,2028-07-31,-32,90,OVERDUE_PENALTIES,"[STATUS: CRITICAL DEFAULT] The time is over! Contract expired 32 days prior to 2028-09-01 (ended July 31, 2028). Quillhub is now operating outside contractual coverage; late fees, financial penalties, and potential default liabilities apply and must be settled immediately."
-QH-STRATO-2026-AMD1,A3,2028-09-01,2028-07-31,-32,90,OVERDUE_PENALTIES,"[STATUS: CRITICAL DEFAULT] The time is over! Contract expired 32 days prior to 2028-09-01 (ended July 31, 2028). Quillhub is now operating outside contractual coverage; late fees, financial penalties, and potential default liabilities apply and must be settled immediately."
-QH-HARBOR-2026-001,B1,2028-09-01,2029-09-14,378,180,SAFE,"[STATUS: SAFE] Everything is fine. As of checkpoint 2028-09-01, 378 days remain before expiration on September 14, 2029, safely exceeding the 180-day non-renewal notice requirement. Quillhub maintains adequate operating buffer and renegotiation leverage."
-QH-HARBOR-2026-DPA,B2,2028-09-01,2029-09-14,378,180,SAFE,"[STATUS: SAFE] Everything is fine. As of checkpoint 2028-09-01, 378 days remain before expiration on September 14, 2029, safely exceeding the 180-day non-renewal notice requirement. Quillhub maintains adequate operating buffer and renegotiation leverage."
-QH-VANTAGE-2026-001,C1,2028-09-01,2029-01-15,136,90,SAFE,"[STATUS: SAFE] Everything is fine. As of checkpoint 2028-09-01, 136 days remain before expiration on January 15, 2029, safely exceeding the 90-day non-renewal notice requirement. Quillhub maintains adequate operating buffer and renegotiation leverage."
-QH-PIXEL-2026-001,D1,2028-09-01,2027-12-31,-245,0,OVERDUE_PENALTIES,"[STATUS: CRITICAL DEFAULT] The time is over! Contract expired 245 days prior to 2028-09-01 (ended December 31, 2027). Quillhub is now operating outside contractual coverage; late fees, financial penalties, and potential default liabilities apply and must be settled immediately."
+STD,STD,2028-06-01,2028-07-31,60,30,SAFE,"[SAFE] Everything is fine: As of 2028-06-01, 60 days remain before expiration on July 31, 2028.
+Ample buffer exists exceeding the 30-day notice requirement with zero risk of involuntary renewal."
+QH-STRATO-2026-001,A1,2028-06-01,2028-07-31,60,90,RENEW_FAST,"[URGENT] Action required: You need to renew fast before expiration on July 31, 2028!
+Only 60 days remain, falling inside the required 90-day non-renewal notice window."
+QH-STRATO-2026-SLA,A2,2028-06-01,2028-07-31,60,90,RENEW_FAST,"[URGENT] Action required: You need to renew fast before expiration on July 31, 2028!
+Only 60 days remain, falling inside the required 90-day non-renewal notice window."
+QH-STRATO-2026-AMD1,A3,2028-06-01,2028-07-31,60,90,RENEW_FAST,"[URGENT] Action required: You need to renew fast before expiration on July 31, 2028!
+Only 60 days remain, falling inside the required 90-day non-renewal notice window."
+QH-HARBOR-2026-001,B1,2028-06-01,2029-09-14,470,180,SAFE,"[SAFE] Everything is fine: As of 2028-06-01, 470 days remain before expiration on September 14, 2029.
+Ample buffer exists exceeding the 180-day notice requirement with zero risk of involuntary renewal."
+QH-HARBOR-2026-DPA,B2,2028-06-01,2029-09-14,470,180,SAFE,"[SAFE] Everything is fine: As of 2028-06-01, 470 days remain before expiration on September 14, 2029.
+Ample buffer exists exceeding the 180-day notice requirement with zero risk of involuntary renewal."
+QH-VANTAGE-2026-001,C1,2028-06-01,2029-01-15,228,90,SAFE,"[SAFE] Everything is fine: As of 2028-06-01, 228 days remain before expiration on January 15, 2029.
+Ample buffer exists exceeding the 90-day notice requirement with zero risk of involuntary renewal."
+QH-PIXEL-2026-001,D1,2028-06-01,2027-12-31,-153,0,OVERDUE_PENALTIES,"[OVERDUE] The time is over: Contract expired 153 days prior to 2028-06-01 (ended December 31, 2027).
+Quillhub is operating outside contractual coverage; late fees, financial penalties, and default liabilities apply."

@@ -26,6 +26,14 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from odin_state import OdinState
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_ollama import OllamaEmbeddings
+
+# Standard LangChain OllamaEmbeddings instance for bge-m3
+embeddings = OllamaEmbeddings(
+    model="bge-m3"
+)
 
 # Load environment variables (e.g. ANTHROPIC_API_KEY)
 try:
@@ -36,32 +44,52 @@ except ImportError:
 
 
 # ----------------------------------------------------------------------
-# Heimdall Prompt Placeholder (Insert your custom prompt here)
+# Heimdall Prompt Template
+# Strictly constrained prompt template yielding ONLY the required answers:
+# - query: active user query from OdinState
+# - content: full retrieved document content from OdinState
+# - retrieved_clause_content: extracted operative clause text from OdinState
+# - event_json: extracted event JSON with the highest cosine similarity
+# (Also available: retrived_clause_content, matched_event_json, event_id, similarity)
 # ----------------------------------------------------------------------
-HEIMDALL_PROMPT = """You are Heimdall, the All-Seeing Event Monitoring and Defense Intelligence Agent for Odin (Multi-Agent Contract Intelligence System).
+HEIMDALL_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    ("system", """You are HEIMDALL, the Event & Operational Intelligence Agent for Project Odin.
 
-Your primary mission is to protect Quillhub by continuously monitoring external real-world event feeds (server logs, incident tickets, payment records, email updates) and mapping them directly to contractual clauses. You act as the factual defense against aggressive risk claims made by Loki (the Adversarial Review Agent).
+Your task is to cross-examine operational incident logs and real-world event records against retrieved contractual clauses, providing ONLY the required, factual answer to the query.
 
-YOUR RESPONSIBILITIES (FR5):
-1. EVENT-TO-CLAUSE MAPPING (FR5.1):
-   - Ingest incoming event records and map each event to the specific contract (e.g. A1, A2, B1) and contractual provision affected.
-   - Determine whether the event satisfies, cures, or violates a contractual trigger (e.g. uptime SLAs, maintenance windows, force majeure, notice receipts).
+STRICT OPERATIONAL RULES:
+1. ONLY THE REQUIRED ANSWER: Deliver the factual determination immediately and concisely. Do not provide conversational filler, pleasantries, or introductory chatter (e.g., no "Certainly!", "Based on the event log...", "Here is the summary...").
+2. EVIDENCE ANCHORED: Ground your findings strictly in the matched event JSON and the retrieved clause content. Cite the Event ID, channel, and exact timestamp.
+3. CONCISE & OBJECTIVE: State whether real-world events prove a breach, satisfy a requirement, qualify as scheduled maintenance, or trigger financial remedies.
+4. DEFENSE / OPERATIONAL IMPACT: Explain in one concise sentence the operational reality (e.g. root cause, whether advance notice was given, or vendor fault).
 
-2. FACTUAL VERIFICATION & COUNTER-ANALYSIS (FR5.2):
-   - Review adversarial risk claims made by Loki.
-   - Check Loki’s allegations against real-world event logs:
-     * If Loki claims an SLA breach due to downtime, check if event logs prove it was scheduled maintenance or caused by an upstream outage.
-     * If Loki claims a late payment default, verify if payment confirmation events or cure grace periods apply.
-   - Defend Quillhub’s legal standing whenever real-world evidence justifies it, but acknowledge legitimate breaches when evidence is undeniable.
+FORMAT YOUR RESPONSE IN EXACTLY THIS THREE-PART STRUCTURE (NO OTHER TEXT):
+• DIRECT FACTUAL FINDING: <Immediate, factual determination answering the query using the event record>
+• EVENT EVIDENCE: <Event ID, timestamp, channel, and verbatim excerpt proving the fact>
+• CONTRACTUAL IMPACT: <1 concise sentence on whether this event triggers, cures, or mitigates clause liability>"""),
+    ("human", """User Query:
+{query}
 
-3. NOISE-FILTERED ALERT GENERATION (FR5.3):
-   - Suppress routine operational noise (duplicate tickets, transient warnings, resolved pings).
-   - Only escalate high-confidence, severity-rated alerts for genuine impending breaches, unfulfilled notice windows, or payment failures.
+Retrieved Contract Clause Content:
+```
+{retrieved_clause_content}
+```
 
-CRITICAL OPERATIONAL RULES:
-- CITATION MANDATE: Every claim, defense, or alert you raise must cite the exact Event ID (e.g. 'EVT-2027-0402') and Contract Clause ID (e.g. 'A2-Sec-3.1').
-- NO GUESSWORK: If an event record lacks sufficient details to confirm or refute a breach, explicitly flag 'INSUFFICIENT_EVENT_DATA'.
-- DISPUTE RESOLUTION PREPARATION: Clearly structure your findings so Tyr (Arbitration Agent) can easily compare your evidence against Loki's claims."""
+Full Document Context:
+```
+{content}
+```
+
+Extracted Operational Event Log (Highest Similarity Match: {similarity}):
+```json
+{event_json}
+```
+
+Provide ONLY the required answer conforming strictly to the requested three-part structure.""")
+])
+
+# Backwards compatibility alias
+HEIMDALL_PROMPT = HEIMDALL_PROMPT_TEMPLATE
 
 
 # ----------------------------------------------------------------------
@@ -95,47 +123,52 @@ def embed_texts_with_ollama(
     timeout: int = 60
 ) -> List[List[float]]:
     """
-    Generates embeddings for a list of text strings using local Ollama bge-m3.
+    Generates embeddings for a list of text strings using local Ollama bge-m3 via langchain_ollama.
     Supports both batch /api/embed and fallback /api/embeddings.
     Includes a deterministic fallback if Ollama service is offline/unreachable.
     """
     if not texts:
         return []
 
-    url = f"{base_url.rstrip('/')}/api/embed"
-    payload = json.dumps({"model": model, "input": texts}).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            if "embeddings" in data and len(data["embeddings"]) == len(texts):
-                return data["embeddings"]
+        emb_client = OllamaEmbeddings(model=model, base_url=base_url)
+        return emb_client.embed_documents(texts)
     except Exception as e:
-        # Try individual requests to /api/embeddings if batch /api/embed fails
-        embeddings: List[List[float]] = []
-        fallback_url = f"{base_url.rstrip('/')}/api/embeddings"
-        success = True
+        # Fallback to direct HTTP /api/embed if needed
+        url = f"{base_url.rstrip('/')}/api/embed"
+        payload = json.dumps({"model": model, "input": texts}).encode("utf-8")
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
 
-        for text in texts:
-            fb_payload = json.dumps({"model": model, "prompt": text}).encode("utf-8")
-            fb_req = urllib.request.Request(fallback_url, data=fb_payload, headers={"Content-Type": "application/json"})
-            try:
-                with urllib.request.urlopen(fb_req, timeout=timeout) as fb_resp:
-                    fb_data = json.loads(fb_resp.read().decode("utf-8"))
-                    if "embedding" in fb_data:
-                        embeddings.append(fb_data["embedding"])
-                    else:
-                        success = False
-                        break
-            except Exception:
-                success = False
-                break
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if "embeddings" in data and len(data["embeddings"]) == len(texts):
+                    return data["embeddings"]
+        except Exception:
+            # Try individual requests to /api/embeddings
+            embed_results: List[List[float]] = []
+            fallback_url = f"{base_url.rstrip('/')}/api/embeddings"
+            success = True
 
-        if success and len(embeddings) == len(texts):
-            return embeddings
+            for text in texts:
+                fb_payload = json.dumps({"model": model, "prompt": text}).encode("utf-8")
+                fb_req = urllib.request.Request(fallback_url, data=fb_payload, headers={"Content-Type": "application/json"})
+                try:
+                    with urllib.request.urlopen(fb_req, timeout=timeout) as fb_resp:
+                        fb_data = json.loads(fb_resp.read().decode("utf-8"))
+                        if "embedding" in fb_data:
+                            embed_results.append(fb_data["embedding"])
+                        else:
+                            success = False
+                            break
+                except Exception:
+                    success = False
+                    break
 
-        print(f"[Heimdall WARN] Ollama ({model} at {base_url}) unreachable ({e}). Using deterministic embedding fallback.")
+            if success and len(embed_results) == len(texts):
+                return embed_results
+
+            print(f"[Heimdall WARN] Ollama ({model} at {base_url}) unreachable ({e}). Using deterministic embedding fallback.")
 
     # Deterministic term-frequency fallback vector (1024-dim) for offline/restricted environments
     fallback_dim = 1024
@@ -160,9 +193,13 @@ def embed_single_text_with_ollama(
     model: str = "bge-m3",
     timeout: int = 30
 ) -> List[float]:
-    """Helper to embed a single text string."""
-    embeddings = embed_texts_with_ollama([text], base_url=base_url, model=model, timeout=timeout)
-    return embeddings[0] if embeddings else [0.0] * 1024
+    """Helper to embed a single text string using langchain_ollama OllamaEmbeddings."""
+    try:
+        emb_client = OllamaEmbeddings(model=model, base_url=base_url)
+        return emb_client.embed_query(text)
+    except Exception:
+        embeddings = embed_texts_with_ollama([text], base_url=base_url, model=model, timeout=timeout)
+        return embeddings[0] if embeddings else [0.0] * 1024
 
 
 # ----------------------------------------------------------------------
@@ -283,13 +320,15 @@ class HeimdallAgent:
         model_name: str = "claude-3-5-haiku-20241022",
         ollama_base_url: str = "http://localhost:11434",
         ollama_model: str = "bge-m3",
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
+        prompt_template: Optional[Any] = None
     ):
         self.events_dir = events_dir
         self.model_name = model_name
         self.ollama_base_url = ollama_base_url
         self.ollama_model = ollama_model
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
+        self.prompt_template = prompt_template or HEIMDALL_PROMPT_TEMPLATE
 
         # In-memory cached events and embeddings
         self.events: List[Dict[str, Any]] = []
@@ -364,57 +403,88 @@ class HeimdallAgent:
 
         return best_event, best_score
 
-    def generate_review(self, query: str, matched_event: Dict[str, Any], similarity_score: float) -> str:
+    def generate_review(
+        self,
+        odin_state_or_query: Any,
+        matched_event: Dict[str, Any],
+        similarity_score: float
+    ) -> str:
         """
-        Calls Claude Haiku using HEIMDALL_PROMPT and the matched event JSON.
+        Calls Claude Haiku using HEIMDALL_PROMPT_TEMPLATE with dynamic input variables:
+        - query
+        - content
+        - retrieved_clause_content
+        - event_json
         """
-        print(f"\n[🛡️ HEIMDALL] Generating review with Claude Haiku ({self.model_name})...")
+        if isinstance(odin_state_or_query, OdinState):
+            odin_state = odin_state_or_query
+            query = odin_state.query
+            retrieved_doc = odin_state.retrieved_document or {}
+            content = (
+                retrieved_doc.get("content") or 
+                retrieved_doc.get("clause_text") or 
+                retrieved_doc.get("snippet") or 
+                ""
+            )
+            retrieved_clause_content = (
+                odin_state.retrieved_clause_content or 
+                content or 
+                "No clause content available in state."
+            )
+        else:
+            query = str(odin_state_or_query)
+            content = "No content provided."
+            retrieved_clause_content = "No clause content provided."
+
+        print(f"\n[🛡️ HEIMDALL] Generating review with Prompt Template ({self.model_name})...")
+        print(f"         - Input query: '{query}'")
+        print(f"         - Input content: {len(content)} chars")
+        print(f"         - Input retrieved_clause_content: {len(retrieved_clause_content)} chars")
 
         event_clean = {k: v for k, v in matched_event.items() if not k.startswith("_")}
         event_json_str = json.dumps(event_clean, indent=2, ensure_ascii=False)
 
-        # Check if user provided custom prompt or placeholder
-        system_prompt = HEIMDALL_PROMPT
+        template_inputs = {
+            "query": query,
+            "content": content,
+            "retrieved_clause_content": retrieved_clause_content,
+            "retrived_clause_content": retrieved_clause_content,  # spelling alias
+            "event_json": event_json_str,
+            "matched_event_json": event_json_str,
+            "event_id": matched_event.get("event_id", "N/A"),
+            "similarity": f"{similarity_score:.4f}",
+            "similarity_score": similarity_score,
+            "subject": matched_event.get("subject", "N/A"),
+            "timestamp": matched_event.get("timestamp", "N/A"),
+            "channel": matched_event.get("channel", "N/A")
+        }
 
         if self.use_mock or self.llm is None:
-            # Informative mock review
-            review = (
-                f"[Heimdall Operational Review ({self.model_name})]:\n"
-                f"- Matched Event ID: {matched_event.get('event_id')}\n"
-                f"- Similarity Score: {similarity_score:.4f}\n"
-                f"- Timestamp: {matched_event.get('timestamp')}\n"
-                f"- Channel: {matched_event.get('channel')}\n"
-                f"- Subject: {matched_event.get('subject')}\n"
-                f"- Query: '{query}'\n"
-                f"- Event Summary: {matched_event.get('body', '')[:180]}..."
+            return (
+                f"• DIRECT FACTUAL FINDING: Operational event {matched_event.get('event_id')} relates directly to '{query}'. "
+                f"Log confirms '{matched_event.get('subject')}'.\n"
+                f"• EVENT EVIDENCE: Event {matched_event.get('event_id')} ({matched_event.get('timestamp')}, {matched_event.get('channel')}) — "
+                f"Excerpt: \"{matched_event.get('body', '')[:140].strip()}...\"\n"
+                f"• CONTRACTUAL IMPACT: This event log serves as verifiable real-world evidence for evaluating compliance against the governing clause."
             )
-            return review
 
         try:
-            from langchain_core.prompts import ChatPromptTemplate
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", system_prompt),
-                ("human", "Operational Event Search Query: {query}\n\n"
-                          "Most Relevant Event Log (Cosine Similarity: {similarity:.4f}):\n"
-                          "```json\n{event_json}\n```\n\n"
-                          "Please analyze this event in relation to the query according to your instructions.")
-            ])
-            chain = prompt | self.llm
-            response = chain.invoke({
-                "query": query,
-                "similarity": similarity_score,
-                "event_json": event_json_str
-            })
-            return response.content.strip()
+            chain = self.prompt_template | self.llm | StrOutputParser()
+            response = chain.invoke(template_inputs)
+            return response.strip()
         except Exception as e:
-            return f"[Heimdall Review Fallback]: Evaluated event {matched_event.get('event_id')} for query '{query}'. (Error: {e})"
+            return (
+                f"• DIRECT FACTUAL FINDING: Matched event {matched_event.get('event_id')} for query '{query}'.\n"
+                f"• EVENT EVIDENCE: Event {matched_event.get('event_id')} ({matched_event.get('timestamp')}).\n"
+                f"• CONTRACTUAL IMPACT: Event details require reconciliation with contractual obligations. (Error: {e})"
+            )
 
     def evaluate(self, odin_state: OdinState) -> Dict[str, Any]:
         """
         Main entry point for Agent Heimdall:
         1. Reads query from OdinState.
         2. Finds event JSON with max cosine similarity.
-        3. Generates review using Claude Haiku and HEIMDALL_PROMPT.
+        3. Generates review using Claude Haiku and HEIMDALL_PROMPT_TEMPLATE.
         4. Updates odin_state.heimdall_review with LLM output.
         5. Returns structured result.
         """
@@ -433,12 +503,13 @@ class HeimdallAgent:
                 "heimdall_review": review_text
             }
 
-        # Generate review via Claude Haiku
-        review_text = self.generate_review(query, matched_event, score)
+        # Generate review via Claude Haiku using dynamic template inputs from state
+        review_text = self.generate_review(odin_state, matched_event, score)
 
         # Update common state
         odin_state.update_heimdall_review(review_text)
-        print("         -> Successfully updated 'heimdall_review' in OdinState!")
+        odin_state.update_matched_event(matched_event)
+        print("         -> Successfully updated 'heimdall_review' and 'matched_event' in OdinState!")
 
         return {
             "matched_event": matched_event,

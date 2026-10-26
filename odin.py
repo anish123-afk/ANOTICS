@@ -216,7 +216,8 @@ class OdinOrchestrator:
         self.tyr.evaluate(
             state,
             interactive_approval=interactive_approval,
-            auto_approve=auto_approve
+            auto_approve=auto_approve,
+            matched_event=matched_event
         )
 
         # --------------------------------------------------------------

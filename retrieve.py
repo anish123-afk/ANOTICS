@@ -17,7 +17,13 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import chromadb
+from langchain_ollama import OllamaEmbeddings
 from build_vector_store import OllamaBgeM3Embedder
+
+# Standard LangChain OllamaEmbeddings instance for bge-m3
+embeddings = OllamaEmbeddings(
+    model="bge-m3"
+)
 
 
 def retrieve_relevant_clauses(

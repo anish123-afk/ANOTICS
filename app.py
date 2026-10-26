@@ -229,8 +229,8 @@ if execute_button and user_query.strip():
         # Step 5: Tyr Arbiter & Final Answer
         st.write("⚖️ **Stage 5: Tyr Supreme Arbiter & Judgment**...")
         tyr = TyrAgent()
-        tyr.synthesize_judgment(state)
-        tyr.derive_final_answer(state)
+        tyr.synthesize_judgment(state, matched_event=matched_ev)
+        tyr.derive_final_answer(state, matched_event=matched_ev)
         st.write("⚖️ Tyr: Synthesized final judgment and derived definitive final answer.")
 
         # Mark human approval pending
@@ -345,6 +345,16 @@ if "odin_state" in st.session_state:
             with col_t3:
                 st.metric("Clause ID", state.retrieved_document.get("clause_id", "N/A"))
 
+            st.markdown("##### 📄 Full Retrieved Clause Content (`retrieved_clause_content`):")
+            clause_content = (
+                state.retrieved_clause_content or 
+                state.retrieved_document.get("content") or 
+                state.retrieved_document.get("clause_text") or 
+                "No clause content available."
+            )
+            st.text_area("Operative Contract Clause Text", value=clause_content, height=220)
+
+            st.markdown("##### 🔍 Full Document Metadata:")
             st.json(state.retrieved_document)
         else:
             st.write("No document retrieved.")
