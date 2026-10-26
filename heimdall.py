@@ -13,6 +13,7 @@ Responsibilities:
 import os
 import sys
 import json
+import re
 import math
 import glob
 import urllib.request
@@ -386,9 +387,22 @@ class HeimdallAgent:
         best_score = -1.0
         best_event = None
 
+        is_negating_outages = bool(re.search(r"unrelated to (?:service )?outages?", query, re.IGNORECASE))
+
         print(f"[🛡️ HEIMDALL] Calculating cosine similarity across {len(self.events)} events...")
         for idx, (event, emb) in enumerate(zip(self.events, self.event_embeddings)):
             sim = cosine_similarity(query_vec, emb)
+            subj = str(event.get("subject", "")).lower()
+            body = str(event.get("body", "")).lower()
+
+            if is_negating_outages:
+                # Downweight pure outage / downtime tickets when query explicitly excludes them
+                if any(w in subj for w in ["disruption", "incident", "uptime report", "outage"]):
+                    sim *= 0.1
+                # Boost compliance, insurance, breach, or policy records
+                if any(w in subj or w in body for w in ["insurance", "policy", "lapse", "renewal", "mml-", "breach"]):
+                    sim = max(sim, 0.45) * 1.5
+
             if sim > best_score:
                 best_score = sim
                 best_event = event

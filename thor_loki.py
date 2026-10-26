@@ -249,6 +249,13 @@ class ThorAgent:
         query = odin_state.query
         self.local_state.query = query
 
+        # Detect explicit contract references like (B1), B1, B2, A1, STD from query if not already passed
+        if not target_contract_id:
+            explicit_match = re.search(r'\b([A-D][1-3]|STD)\b', query, re.IGNORECASE)
+            if explicit_match:
+                target_contract_id = explicit_match.group(1).upper()
+                print(f"         [Thor] Detected Explicit Target Contract from query: [{target_contract_id}]")
+
         print(f"\n[⚡ THOR] Iteration {self.local_state.iteration}/{self.local_state.max_iteration}")
         print(f"         Processing Query: '{query}'")
         if target_contract_id:
@@ -318,32 +325,25 @@ class ThorAgent:
         Deterministic retrieval from canonical contract text files when vector store is offline.
         Reads actual contract text and extracts the operative clause content.
         """
-        # Determine target document code (e.g. B2, A2, STD)
-        cid = target_contract_id or "B2"
-        doc_code = cid.upper()
-
-        if os.path.exists("manifest.json"):
-            try:
-                with open("manifest.json", "r", encoding="utf-8") as f:
-                    manifest = json.load(f)
-                contracts = manifest.get("contracts", [])
-                for c in contracts:
-                    if target_contract_id and c["contract_id"].upper() == target_contract_id.upper():
-                        doc_code = c["contract_id"].upper()
-                        break
-                    elif not target_contract_id:
-                        c_id = c["contract_id"].lower()
-                        if c_id in query.lower():
-                            doc_code = c["contract_id"].upper()
-                            break
-                        elif "security" in query.lower() or "dpa" in query.lower() or "breach" in query.lower():
-                            doc_code = "B2"
-                            break
-                        elif "sla" in query.lower() or "uptime" in query.lower() or "credit" in query.lower():
-                            doc_code = "A2"
-                            break
-            except Exception:
-                pass
+        # Determine target document code (e.g. B1, B2, A1, STD)
+        if target_contract_id:
+            doc_code = target_contract_id.upper()
+        else:
+            explicit_match = re.search(r'\b([A-D][1-3]|STD)\b', query, re.IGNORECASE)
+            if explicit_match:
+                doc_code = explicit_match.group(1).upper()
+            elif "harbor" in query.lower() and "security addendum" not in query.lower() and "dpa" not in query.lower():
+                doc_code = "B1"
+            elif "security addendum" in query.lower() or "dpa" in query.lower():
+                doc_code = "B2"
+            elif "strato" in query.lower():
+                doc_code = "A1"
+            elif "vantage" in query.lower():
+                doc_code = "C1"
+            elif "pixel" in query.lower():
+                doc_code = "D1"
+            else:
+                doc_code = "B1"
 
         # Read actual contract text from file
         txt_path = os.path.join("bundle", "contracts", f"{doc_code}.txt")
@@ -531,6 +531,16 @@ class LokiAgent:
             return False, None
 
         current_id = str(odin_state.retrieved_document.get("document_name") or odin_state.retrieved_document.get("contract_id", "")).upper()
+
+        # If user explicitly pinned this exact document in the query (e.g. B1), respect their constraint
+        explicit_match = re.search(r'\b([A-D][1-3]|STD)\b', odin_state.query, re.IGNORECASE)
+        explicit_target = explicit_match.group(1).upper() if explicit_match else None
+        if explicit_target and explicit_target == current_id and "amendment" not in odin_state.query.lower():
+            print(f"\n[🦊 LOKI] Evaluating retrieved document: [{current_id}]")
+            print(f"         -> Query explicitly pinned document [{current_id}]. Approved as target governing document.")
+            odin_state.set_re_extract(False)
+            return False, None
+
         next_id = self.compute_next_document_id(current_id)
 
         print(f"\n[🦊 LOKI] Evaluating retrieved document: [{current_id}]")
